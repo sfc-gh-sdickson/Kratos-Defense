@@ -3,12 +3,12 @@
 -- ============================================================================
 -- Purpose: SQL procedures that call registered ML models directly
 --
--- When models are registered with log_model(), Snowflake creates SQL functions:
---   PROGRAM_RISK_PREDICTOR!PREDICT(...)
---   SUPPLIER_RISK_PREDICTOR!PREDICT(...)
---   ASSET_MAINTENANCE_PREDICTOR!PREDICT(...)
+-- When models are registered with log_model(), Snowflake creates callable models:
+--   PROGRAM_RISK_PREDICTOR
+--   SUPPLIER_RISK_PREDICTOR
+--   ASSET_MAINTENANCE_PREDICTOR
 --
--- These procedures wrap those functions for use by the Intelligence Agent.
+-- These procedures use WITH model AS MODEL syntax to invoke predictions.
 --
 -- WORKFLOW:
 --   1. Run notebook to train and register models
@@ -22,9 +22,9 @@ USE WAREHOUSE KRATOS_WH;
 
 -- ============================================================================
 -- Procedure 1: Program Risk Prediction Wrapper
--- Calls: PROGRAM_RISK_PREDICTOR!PREDICT(...) directly
--- Features must match training: budget, spent, variance, schedule_variance,
---   completion_pct, total_milestones, milestone_pct, budget_utilization, prog_type
+-- Model: PROGRAM_RISK_PREDICTOR (Random Forest Classifier)
+-- Features: budget, spent, variance, schedule_variance, completion_pct,
+--           total_milestones, milestone_pct, budget_utilization, prog_type
 -- ============================================================================
 
 CREATE OR REPLACE PROCEDURE PREDICT_PROGRAM_RISK(
@@ -32,24 +32,25 @@ CREATE OR REPLACE PROCEDURE PREDICT_PROGRAM_RISK(
 )
 RETURNS TABLE()
 LANGUAGE SQL
-COMMENT = 'Calls PROGRAM_RISK_PREDICTOR ML model in real-time to predict program risk'
+COMMENT = 'Calls PROGRAM_RISK_PREDICTOR ML model to predict program risk levels'
 AS
 $$
 DECLARE
     res RESULTSET;
 BEGIN
     res := (
+        WITH m AS MODEL KRATOS_INTELLIGENCE.ANALYTICS.PROGRAM_RISK_PREDICTOR
         SELECT 
             program_id,
             prog_type,
             budget,
             spent,
             completion_pct,
-            PROGRAM_RISK_PREDICTOR!PREDICT(
+            m!PREDICT(
                 budget, spent, variance, schedule_variance,
                 completion_pct, total_milestones, milestone_pct, 
                 budget_utilization, prog_type
-            ) AS predicted_risk
+            ):PREDICTED_RISK::INT AS predicted_risk
         FROM KRATOS_INTELLIGENCE.ANALYTICS.V_PROGRAM_RISK_FEATURES
         WHERE (:PROGRAM_TYPE IS NULL OR prog_type = :PROGRAM_TYPE)
         LIMIT 100
@@ -60,9 +61,9 @@ $$;
 
 -- ============================================================================
 -- Procedure 2: Supplier Risk Prediction Wrapper
--- Calls: SUPPLIER_RISK_PREDICTOR!PREDICT(...) directly
--- Features must match training: quality_score, delivery_score, overall_rating,
---   order_count, total_spend, avg_order_value, payment_terms, sup_type
+-- Model: SUPPLIER_RISK_PREDICTOR (Random Forest Classifier)
+-- Features: quality_score, delivery_score, overall_rating, order_count,
+--           total_spend, avg_order_value, payment_terms, sup_type
 -- ============================================================================
 
 CREATE OR REPLACE PROCEDURE PREDICT_SUPPLIER_RISK(
@@ -70,24 +71,25 @@ CREATE OR REPLACE PROCEDURE PREDICT_SUPPLIER_RISK(
 )
 RETURNS TABLE()
 LANGUAGE SQL
-COMMENT = 'Calls SUPPLIER_RISK_PREDICTOR ML model in real-time to predict supplier risk'
+COMMENT = 'Calls SUPPLIER_RISK_PREDICTOR ML model to predict supplier risk levels'
 AS
 $$
 DECLARE
     res RESULTSET;
 BEGIN
     res := (
+        WITH m AS MODEL KRATOS_INTELLIGENCE.ANALYTICS.SUPPLIER_RISK_PREDICTOR
         SELECT 
             supplier_id,
             sup_type,
             quality_score,
             delivery_score,
             total_spend,
-            SUPPLIER_RISK_PREDICTOR!PREDICT(
+            m!PREDICT(
                 quality_score, delivery_score, overall_rating,
                 order_count, total_spend, avg_order_value,
                 payment_terms, sup_type
-            ) AS predicted_risk
+            ):PREDICTED_RISK::INT AS predicted_risk
         FROM KRATOS_INTELLIGENCE.ANALYTICS.V_SUPPLIER_RISK_FEATURES
         WHERE (:SUPPLIER_TYPE IS NULL OR sup_type = :SUPPLIER_TYPE)
         LIMIT 100
@@ -98,9 +100,9 @@ $$;
 
 -- ============================================================================
 -- Procedure 3: Asset Maintenance Prediction Wrapper
--- Calls: ASSET_MAINTENANCE_PREDICTOR!PREDICT(...) directly
--- Features must match training: flight_hours, maint_interval, utilization_pct,
---   days_since_maintenance, days_until_due, condition_score, is_ready, ast_type
+-- Model: ASSET_MAINTENANCE_PREDICTOR (Random Forest Classifier)
+-- Features: flight_hours, maint_interval, utilization_pct, days_since_maintenance,
+--           days_until_due, condition_score, is_ready, ast_type
 -- ============================================================================
 
 CREATE OR REPLACE PROCEDURE PREDICT_ASSET_MAINTENANCE(
@@ -108,24 +110,25 @@ CREATE OR REPLACE PROCEDURE PREDICT_ASSET_MAINTENANCE(
 )
 RETURNS TABLE()
 LANGUAGE SQL
-COMMENT = 'Calls ASSET_MAINTENANCE_PREDICTOR ML model in real-time to predict maintenance urgency'
+COMMENT = 'Calls ASSET_MAINTENANCE_PREDICTOR ML model to predict maintenance urgency'
 AS
 $$
 DECLARE
     res RESULTSET;
 BEGIN
     res := (
+        WITH m AS MODEL KRATOS_INTELLIGENCE.ANALYTICS.ASSET_MAINTENANCE_PREDICTOR
         SELECT 
             asset_id,
             ast_type,
             flight_hours,
             condition_score,
             days_until_due,
-            ASSET_MAINTENANCE_PREDICTOR!PREDICT(
+            m!PREDICT(
                 flight_hours, maint_interval, utilization_pct,
                 days_since_maintenance, days_until_due, 
                 condition_score, is_ready, ast_type
-            ) AS predicted_urgency
+            ):PREDICTED_URGENCY::INT AS predicted_urgency
         FROM KRATOS_INTELLIGENCE.ANALYTICS.V_ASSET_MAINTENANCE_FEATURES
         WHERE (:ASSET_TYPE IS NULL OR ast_type = :ASSET_TYPE)
         LIMIT 100
@@ -138,24 +141,22 @@ $$;
 -- Display confirmation
 -- ============================================================================
 
-SELECT 'ML model wrapper functions created successfully' AS status;
+SELECT 'ML model wrapper procedures created successfully' AS status;
 
 -- ============================================================================
 -- Test Calls (run after models are registered via notebook)
--- These procedures return TABLE results with real-time ML predictions
 -- ============================================================================
 
--- Test PREDICT_PROGRAM_RISK - returns table of programs with predicted risk
+-- Test PREDICT_PROGRAM_RISK
 CALL PREDICT_PROGRAM_RISK('DEVELOPMENT');
-CALL PREDICT_PROGRAM_RISK(NULL);  -- All program types
+CALL PREDICT_PROGRAM_RISK(NULL);
 
--- Test PREDICT_SUPPLIER_RISK - returns table of suppliers with predicted risk
+-- Test PREDICT_SUPPLIER_RISK
 CALL PREDICT_SUPPLIER_RISK('TIER_1');
-CALL PREDICT_SUPPLIER_RISK(NULL);  -- All supplier types
+CALL PREDICT_SUPPLIER_RISK(NULL);
 
--- Test PREDICT_ASSET_MAINTENANCE - returns table of assets with predicted urgency
+-- Test PREDICT_ASSET_MAINTENANCE
 CALL PREDICT_ASSET_MAINTENANCE('AIRCRAFT');
-CALL PREDICT_ASSET_MAINTENANCE(NULL);  -- All asset types
+CALL PREDICT_ASSET_MAINTENANCE(NULL);
 
-SELECT 'Test calls completed - each procedure returns a table with ML predictions' AS instruction;
-
+SELECT 'Test calls completed - verify ML predictions in results above' AS instruction;
