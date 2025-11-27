@@ -54,7 +54,7 @@ BEGIN
                 budget_utilization, prog_type
             ):PREDICTED_RISK::INT AS predicted_risk
         FROM KRATOS_INTELLIGENCE.ANALYTICS.V_PROGRAM_RISK_FEATURES
-        WHERE (:PROGRAM_TYPE IS NULL OR prog_type = :PROGRAM_TYPE)
+        WHERE (:PROGRAM_TYPE IS NULL OR UPPER(prog_type) = UPPER(:PROGRAM_TYPE))
         LIMIT 100
     )
     SELECT 
@@ -124,7 +124,7 @@ BEGIN
                 payment_terms, sup_type
             ):PREDICTED_RISK::INT AS predicted_risk
         FROM KRATOS_INTELLIGENCE.ANALYTICS.V_SUPPLIER_RISK_FEATURES
-        WHERE (:SUPPLIER_TYPE IS NULL OR sup_type = :SUPPLIER_TYPE)
+        WHERE (:SUPPLIER_TYPE IS NULL OR UPPER(sup_type) = UPPER(:SUPPLIER_TYPE))
         LIMIT 100
     )
     SELECT 
@@ -188,7 +188,7 @@ BEGIN
                 condition_score, is_ready, ast_type
             ):PREDICTED_URGENCY::INT AS predicted_urgency
         FROM KRATOS_INTELLIGENCE.ANALYTICS.V_ASSET_MAINTENANCE_FEATURES
-        WHERE (:ASSET_TYPE IS NULL OR ast_type = :ASSET_TYPE)
+        WHERE (:ASSET_TYPE IS NULL OR UPPER(ast_type) = UPPER(:ASSET_TYPE))
         LIMIT 100
     )
     SELECT 
