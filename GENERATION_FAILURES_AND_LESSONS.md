@@ -879,6 +879,123 @@ COALESCE((p.milestones_completed::FLOAT / NULLIF(p.milestone_count, 0) * 100), 0
 
 ---
 
+# 🛡️ PERMANENT SOLUTION: ML Feature Views (Single Source of Truth)
+
+## The Problem That Kept Recurring
+
+Every time I created ML models, I:
+1. Defined features in the notebook with certain column names
+2. Defined features in the procedure with DIFFERENT column names
+3. The model failed at runtime because names didn't match
+4. User had to find and report the error
+5. I fixed it and promised never to do it again
+6. I DID IT AGAIN
+
+## The Permanent Solution: Feature Views
+
+**Create ONE view that defines features, use it EVERYWHERE.**
+
+### Implementation
+
+#### Step 1: Create Feature Views (in 04_create_views.sql)
+
+```sql
+-- V_PROGRAM_RISK_FEATURES - defines ALL features for program risk model
+CREATE OR REPLACE VIEW V_PROGRAM_RISK_FEATURES AS
+SELECT
+    p.program_id,
+    p.budget_amount::FLOAT AS budget,
+    p.spent_amount::FLOAT AS spent,
+    -- ... all features defined ONCE ...
+FROM RAW.PROGRAMS p;
+
+-- V_SUPPLIER_RISK_FEATURES - defines ALL features for supplier risk model
+-- V_ASSET_MAINTENANCE_FEATURES - defines ALL features for asset maintenance model
+```
+
+#### Step 2: Notebook Uses Feature View
+
+```python
+# BEFORE (BAD - inline feature definition)
+program_risk_df = session.sql("""
+SELECT
+    p.budget_amount::FLOAT AS budget,
+    p.milestones_completed::FLOAT AS milestone_pct,  -- MIGHT NOT MATCH PROCEDURE
+    ...
+FROM RAW.PROGRAMS p
+""")
+
+# AFTER (GOOD - uses feature view)
+program_risk_df = session.sql("""
+SELECT * FROM ANALYTICS.V_PROGRAM_RISK_FEATURES
+WHERE program_status IN ('ACTIVE', 'COMPLETED')
+""")
+```
+
+#### Step 3: Procedure Uses SAME Feature View
+
+```python
+# BEFORE (BAD - inline feature definition that might not match notebook)
+query = f"""
+SELECT
+    p.budget_amount::FLOAT AS budget,
+    p.milestones_completed::FLOAT AS milestone_completion_pct,  -- WRONG NAME!
+    ...
+FROM RAW.PROGRAMS p
+"""
+
+# AFTER (GOOD - uses feature view, GUARANTEED to match)
+query = f"""
+SELECT * FROM ANALYTICS.V_PROGRAM_RISK_FEATURES
+WHERE program_status = 'ACTIVE' {type_filter}
+"""
+```
+
+### Why This Works
+
+1. **Features defined ONCE** - in the view
+2. **Notebook uses view** - gets the defined features
+3. **Procedure uses view** - gets the SAME features
+4. **Names CANNOT mismatch** - both read from the same source
+5. **Changes propagate** - update view, both notebook and procedure get the change
+
+### Files Changed for This Solution
+
+| File | Change |
+|------|--------|
+| `sql/views/04_create_views.sql` | Added V_PROGRAM_RISK_FEATURES, V_SUPPLIER_RISK_FEATURES, V_ASSET_MAINTENANCE_FEATURES |
+| `notebooks/kratos_ml_models.ipynb` | Changed inline queries to use feature views |
+| `sql/ml/07_create_model_wrapper_functions.sql` | Changed inline queries to use feature views |
+
+### Mandatory Rule for All Future ML Projects
+
+```
+╔══════════════════════════════════════════════════════════════════╗
+║  NEVER DEFINE ML FEATURES INLINE IN NOTEBOOKS OR PROCEDURES      ║
+║  ALWAYS CREATE A FEATURE VIEW AND USE IT IN BOTH PLACES          ║
+║  THIS IS NOT OPTIONAL - IT IS THE ONLY WAY TO PREVENT MISMATCH   ║
+╚══════════════════════════════════════════════════════════════════╝
+```
+
+### Verification Checklist
+
+Before ANY ML model deployment:
+
+```
+□ Feature view exists in 04_create_views.sql
+□ Notebook query is: SELECT * FROM ANALYTICS.V_xxx_FEATURES WHERE ...
+□ Procedure query is: SELECT * FROM ANALYTICS.V_xxx_FEATURES WHERE ...
+□ Neither notebook nor procedure defines features inline
+□ Run notebook to verify it trains successfully
+□ Run procedure to verify it predicts successfully
+```
+
+This solution makes feature name mismatches **structurally impossible**.
+
+---
+
+---
+
 ## Failure Category 6: Numeric Precision Overflow
 
 ### 6.1 NUMBER(3,2) Cannot Hold 10.0

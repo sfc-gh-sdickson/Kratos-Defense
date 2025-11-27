@@ -4,12 +4,11 @@
 -- Purpose: Create SQL procedures that wrap Model Registry models
 --          so they can be added as tools to the Intelligence Agent
 -- 
--- IMPORTANT: These wrapper functions MUST match the models created in:
---            notebooks/kratos_ml_models.ipynb
+-- CRITICAL: These procedures use FEATURE VIEWS from 04_create_views.sql
+--           V_PROGRAM_RISK_FEATURES, V_SUPPLIER_RISK_FEATURES, V_ASSET_MAINTENANCE_FEATURES
+--           This ensures feature names ALWAYS match between training and prediction.
 --
--- CRITICAL: Parameter names MUST match the agent tool input_schema in file 08
---
--- COLUMN VERIFICATION: All column names verified against 02_create_tables.sql
+-- NEVER define feature columns inline - ALWAYS use the feature views!
 --
 -- Models registered by notebook:
 --   1. PROGRAM_RISK_PREDICTOR - Output: PREDICTED_RISK (0, 1, 2, 3)
@@ -23,13 +22,8 @@ USE WAREHOUSE KRATOS_WH;
 
 -- ============================================================================
 -- Procedure 1: Program Risk Prediction Wrapper
--- Matches: PROGRAM_RISK_PREDICTOR model from notebook
--- 
--- VERIFIED COLUMNS from 02_create_tables.sql PROGRAMS table:
---   budget_amount, spent_amount, budget_variance, schedule_variance_days,
---   percent_complete, milestone_count, milestones_completed, risk_level
--- 
--- PARAMETER NAME: program_type (matches agent tool input_schema)
+-- Uses: V_PROGRAM_RISK_FEATURES view (SINGLE SOURCE OF TRUTH)
+-- Model: PROGRAM_RISK_PREDICTOR
 -- ============================================================================
 
 CREATE OR REPLACE PROCEDURE PREDICT_PROGRAM_RISK(
@@ -51,31 +45,14 @@ def predict_program_risk(session, program_type):
     reg = Registry(session)
     model = reg.get_model("PROGRAM_RISK_PREDICTOR").default
     
-    # Build query with optional filter
-    type_filter = f"AND program_type = '{program_type}'" if program_type else ""
+    # Build query using FEATURE VIEW - NEVER define features inline!
+    type_filter = f"AND prog_type = '{program_type}'" if program_type else ""
     
-    # Query uses VERIFIED column names from 02_create_tables.sql PROGRAMS table
+    # Use V_PROGRAM_RISK_FEATURES view - same features as training
     query = f"""
-    SELECT
-        p.program_id,
-        p.budget_amount::FLOAT AS budget,
-        p.spent_amount::FLOAT AS spent,
-        p.budget_variance::FLOAT AS variance,
-        p.schedule_variance_days::FLOAT AS schedule_variance,
-        p.percent_complete::FLOAT AS completion_pct,
-        p.milestone_count::FLOAT AS total_milestones,
-        COALESCE((p.milestones_completed::FLOAT / NULLIF(p.milestone_count, 0) * 100), 0)::FLOAT AS milestone_pct,
-        (p.spent_amount::FLOAT / NULLIF(p.budget_amount, 0) * 100)::FLOAT AS budget_utilization,
-        p.program_type AS prog_type,
-        -- Label for reference (will not be used in prediction)
-        CASE p.risk_level
-            WHEN 'LOW' THEN 0
-            WHEN 'MEDIUM' THEN 1
-            WHEN 'HIGH' THEN 2
-            ELSE 3
-        END AS risk_label
-    FROM RAW.PROGRAMS p
-    WHERE p.program_status = 'ACTIVE'
+    SELECT *
+    FROM ANALYTICS.V_PROGRAM_RISK_FEATURES
+    WHERE program_status = 'ACTIVE'
       {type_filter}
     LIMIT 50
     """
@@ -93,9 +70,6 @@ def predict_program_risk(session, program_type):
     
     # Analyze predictions
     result = predictions.select("PREDICTED_RISK", "PROG_TYPE").to_pandas()
-    
-    # Map numeric predictions back to risk levels
-    risk_map = {0: 'LOW', 1: 'MEDIUM', 2: 'HIGH', 3: 'CRITICAL'}
     
     # Count by predicted risk
     low_risk = int((result['PREDICTED_RISK'] == 0).sum())
@@ -117,12 +91,8 @@ $$;
 
 -- ============================================================================
 -- Procedure 2: Supplier Risk Prediction Wrapper
--- Matches: SUPPLIER_RISK_PREDICTOR model from notebook
--- 
--- VERIFIED COLUMNS from 02_create_tables.sql SUPPLIERS table:
---   quality_rating, delivery_rating, total_orders, total_spend, risk_rating
--- 
--- PARAMETER NAME: supplier_type (matches agent tool input_schema)
+-- Uses: V_SUPPLIER_RISK_FEATURES view (SINGLE SOURCE OF TRUTH)
+-- Model: SUPPLIER_RISK_PREDICTOR
 -- ============================================================================
 
 CREATE OR REPLACE PROCEDURE PREDICT_SUPPLIER_RISK(
@@ -144,29 +114,14 @@ def predict_supplier_risk(session, supplier_type):
     reg = Registry(session)
     model = reg.get_model("SUPPLIER_RISK_PREDICTOR").default
     
-    # Build query with optional filter
-    type_filter = f"AND supplier_type = '{supplier_type}'" if supplier_type else ""
+    # Build query using FEATURE VIEW - NEVER define features inline!
+    type_filter = f"AND sup_type = '{supplier_type}'" if supplier_type else ""
     
-    # Query uses VERIFIED column names from 02_create_tables.sql SUPPLIERS table
+    # Use V_SUPPLIER_RISK_FEATURES view - same features as training
     query = f"""
-    SELECT
-        s.supplier_id,
-        s.quality_rating::FLOAT AS quality_score,
-        s.delivery_rating::FLOAT AS delivery_score,
-        ((s.quality_rating + s.delivery_rating) / 2)::FLOAT AS overall_rating,
-        s.total_orders::FLOAT AS order_count,
-        s.total_spend::FLOAT AS total_spend,
-        (s.total_spend::FLOAT / NULLIF(s.total_orders, 0))::FLOAT AS avg_order_value,
-        s.supplier_type AS sup_type,
-        -- Label for reference
-        CASE s.risk_rating
-            WHEN 'LOW' THEN 0
-            WHEN 'MEDIUM' THEN 1
-            WHEN 'HIGH' THEN 2
-            ELSE 3
-        END AS risk_label
-    FROM RAW.SUPPLIERS s
-    WHERE s.supplier_status IN ('ACTIVE', 'PREFERRED', 'PROBATION')
+    SELECT *
+    FROM ANALYTICS.V_SUPPLIER_RISK_FEATURES
+    WHERE supplier_status IN ('ACTIVE', 'PREFERRED', 'PROBATION')
       {type_filter}
     LIMIT 50
     """
@@ -209,13 +164,8 @@ $$;
 
 -- ============================================================================
 -- Procedure 3: Asset Maintenance Prediction Wrapper
--- Matches: ASSET_MAINTENANCE_PREDICTOR model from notebook
--- 
--- VERIFIED COLUMNS from 02_create_tables.sql ASSETS table:
---   total_flight_hours, maintenance_interval_hours, last_maintenance_date,
---   next_maintenance_due, condition_rating, mission_ready
--- 
--- PARAMETER NAME: asset_type (matches agent tool input_schema)
+-- Uses: V_ASSET_MAINTENANCE_FEATURES view (SINGLE SOURCE OF TRUTH)
+-- Model: ASSET_MAINTENANCE_PREDICTOR
 -- ============================================================================
 
 CREATE OR REPLACE PROCEDURE PREDICT_ASSET_MAINTENANCE(
@@ -237,35 +187,15 @@ def predict_maintenance(session, asset_type):
     reg = Registry(session)
     model = reg.get_model("ASSET_MAINTENANCE_PREDICTOR").default
     
-    # Build query with optional filter
-    type_filter = f"AND asset_type = '{asset_type}'" if asset_type else ""
+    # Build query using FEATURE VIEW - NEVER define features inline!
+    type_filter = f"AND ast_type = '{asset_type}'" if asset_type else ""
     
-    # Query uses VERIFIED column names from 02_create_tables.sql ASSETS table
+    # Use V_ASSET_MAINTENANCE_FEATURES view - same features as training
     query = f"""
-    SELECT
-        a.asset_id,
-        a.total_flight_hours::FLOAT AS flight_hours,
-        a.maintenance_interval_hours::FLOAT AS maint_interval,
-        (a.total_flight_hours::FLOAT / NULLIF(a.maintenance_interval_hours, 0) * 100)::FLOAT AS utilization_pct,
-        DATEDIFF('day', a.last_maintenance_date, CURRENT_DATE())::FLOAT AS days_since_maintenance,
-        DATEDIFF('day', CURRENT_DATE(), a.next_maintenance_due)::FLOAT AS days_until_due,
-        CASE a.condition_rating
-            WHEN 'EXCELLENT' THEN 4
-            WHEN 'GOOD' THEN 3
-            WHEN 'FAIR' THEN 2
-            ELSE 1
-        END::FLOAT AS condition_score,
-        CASE WHEN a.mission_ready = TRUE THEN 1 ELSE 0 END::FLOAT AS is_ready,
-        a.asset_type AS ast_type,
-        -- Synthetic urgency label for training
-        CASE 
-            WHEN DATEDIFF('day', CURRENT_DATE(), a.next_maintenance_due) < 0 THEN 2  -- OVERDUE
-            WHEN DATEDIFF('day', CURRENT_DATE(), a.next_maintenance_due) <= 14 THEN 1  -- DUE_SOON
-            ELSE 0  -- ON_SCHEDULE
-        END AS urgency_label
-    FROM RAW.ASSETS a
-    WHERE a.asset_status IN ('OPERATIONAL', 'MAINTENANCE', 'STANDBY')
-      AND a.next_maintenance_due IS NOT NULL
+    SELECT *
+    FROM ANALYTICS.V_ASSET_MAINTENANCE_FEATURES
+    WHERE asset_status IN ('OPERATIONAL', 'MAINTENANCE', 'STANDBY')
+      AND next_maintenance_due IS NOT NULL
       {type_filter}
     LIMIT 100
     """
@@ -283,9 +213,6 @@ def predict_maintenance(session, asset_type):
     
     # Analyze predictions
     result = predictions.select("PREDICTED_URGENCY", "AST_TYPE", "DAYS_UNTIL_DUE").to_pandas()
-    
-    # Map predictions
-    urgency_map = {0: 'ON_SCHEDULE', 1: 'DUE_SOON', 2: 'OVERDUE'}
     
     # Count by predicted urgency
     on_schedule = int((result['PREDICTED_URGENCY'] == 0).sum())
