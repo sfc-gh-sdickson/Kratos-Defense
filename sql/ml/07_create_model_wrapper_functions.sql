@@ -1,11 +1,20 @@
 -- ============================================================================
--- Kratos Defense Intelligence Agent - ML Model Wrapper Procedures
+-- Kratos Defense Intelligence Agent - Model Registry Wrapper Functions
 -- ============================================================================
--- CRITICAL RULES (from GENERATION_FAILURES_AND_LESSONS.md):
---   1. Input column names MUST match notebook training EXACTLY
---   2. Input column data types MUST match notebook training EXACTLY
---   3. Use COALESCE to handle NULL values
---   4. Handle empty result sets gracefully
+-- Purpose: Create SQL procedures that wrap Model Registry models
+--          so they can be added as tools to the Intelligence Agent
+-- 
+-- IMPORTANT: These wrapper functions MUST match the models created in:
+--            notebooks/kratos_ml_models.ipynb
+--
+-- CRITICAL: Parameter names MUST match the agent tool input_schema in file 08
+--
+-- COLUMN VERIFICATION: All column names verified against 02_create_tables.sql
+--
+-- Models registered by notebook:
+--   1. PROGRAM_RISK_PREDICTOR - Output: PREDICTED_RISK (0, 1, 2, 3)
+--   2. SUPPLIER_RISK_PREDICTOR - Output: PREDICTED_RISK (0, 1, 2, 3)
+--   3. ASSET_MAINTENANCE_PREDICTOR - Output: PREDICTED_URGENCY (0, 1, 2)
 -- ============================================================================
 
 USE DATABASE KRATOS_INTELLIGENCE;
@@ -13,253 +22,314 @@ USE SCHEMA ANALYTICS;
 USE WAREHOUSE KRATOS_WH;
 
 -- ============================================================================
--- Procedure 1: Predict Program Risk
--- Predicts whether a program is at risk of cost/schedule overrun
+-- Procedure 1: Program Risk Prediction Wrapper
+-- Matches: PROGRAM_RISK_PREDICTOR model from notebook
+-- 
+-- VERIFIED COLUMNS from 02_create_tables.sql PROGRAMS table:
+--   budget_amount, spent_amount, budget_variance, schedule_variance_days,
+--   percent_complete, milestone_count, milestones_completed, risk_level
+-- 
+-- PARAMETER NAME: program_type (matches agent tool input_schema)
 -- ============================================================================
-CREATE OR REPLACE PROCEDURE PREDICT_PROGRAM_RISK(PROGRAM_ID VARCHAR)
-RETURNS TABLE (
-    program_id VARCHAR,
-    program_name VARCHAR,
-    risk_prediction NUMBER,
-    risk_label VARCHAR,
-    current_risk_level VARCHAR,
-    funded_ratio NUMBER,
-    cost_ratio NUMBER
-)
-LANGUAGE SQL
-AS
-$$
-DECLARE
-    result RESULTSET;
-BEGIN
-    result := (
-        WITH program_features AS (
-            SELECT
-                p.program_id,
-                p.program_name,
-                p.risk_level AS current_risk_level,
-                COALESCE(p.funded_value / NULLIF(p.total_contract_value, 0), 0.5)::NUMBER(10,4) AS funded_ratio,
-                COALESCE(p.costs_incurred / NULLIF(p.funded_value, 0), 0.5)::NUMBER(10,4) AS cost_ratio,
-                DATEDIFF('day', p.start_date, CURRENT_DATE()) AS days_active,
-                DATEDIFF('day', CURRENT_DATE(), COALESCE(p.planned_end_date, DATEADD('year', 1, CURRENT_DATE()))) AS days_remaining
-            FROM RAW.PROGRAMS p
-            WHERE p.program_id = :PROGRAM_ID
-        )
-        SELECT
-            pf.program_id,
-            pf.program_name,
-            CASE 
-                WHEN pf.cost_ratio > 1.0 OR pf.current_risk_level = 'HIGH' THEN 1
-                WHEN pf.cost_ratio > 0.8 AND pf.days_remaining < 90 THEN 1
-                ELSE 0
-            END AS risk_prediction,
-            CASE 
-                WHEN pf.cost_ratio > 1.0 OR pf.current_risk_level = 'HIGH' THEN 'HIGH RISK'
-                WHEN pf.cost_ratio > 0.8 AND pf.days_remaining < 90 THEN 'MEDIUM RISK'
-                ELSE 'LOW RISK'
-            END AS risk_label,
-            pf.current_risk_level,
-            pf.funded_ratio,
-            pf.cost_ratio
-        FROM program_features pf
-    );
-    RETURN TABLE(result);
-END;
-$$;
 
--- ============================================================================
--- Procedure 2: Predict Supplier Risk
--- Predicts whether a supplier is at risk of quality/delivery issues
--- ============================================================================
-CREATE OR REPLACE PROCEDURE PREDICT_SUPPLIER_RISK(SUPPLIER_ID VARCHAR)
-RETURNS TABLE (
-    supplier_id VARCHAR,
-    supplier_name VARCHAR,
-    risk_prediction NUMBER,
-    risk_label VARCHAR,
-    quality_rating NUMBER,
-    delivery_rating NUMBER,
-    overall_score NUMBER
+CREATE OR REPLACE PROCEDURE PREDICT_PROGRAM_RISK(
+    PROGRAM_TYPE VARCHAR
 )
-LANGUAGE SQL
-AS
-$$
-DECLARE
-    result RESULTSET;
-BEGIN
-    result := (
-        SELECT
-            s.supplier_id,
-            s.supplier_name,
-            CASE 
-                WHEN COALESCE(s.quality_rating, 0.5) < 0.75 OR COALESCE(s.delivery_rating, 0.5) < 0.75 THEN 1
-                WHEN COALESCE(s.quality_rating, 0.5) < 0.85 AND COALESCE(s.delivery_rating, 0.5) < 0.85 THEN 1
-                ELSE 0
-            END AS risk_prediction,
-            CASE 
-                WHEN COALESCE(s.quality_rating, 0.5) < 0.75 OR COALESCE(s.delivery_rating, 0.5) < 0.75 THEN 'HIGH RISK'
-                WHEN COALESCE(s.quality_rating, 0.5) < 0.85 AND COALESCE(s.delivery_rating, 0.5) < 0.85 THEN 'MEDIUM RISK'
-                ELSE 'LOW RISK'
-            END AS risk_label,
-            COALESCE(s.quality_rating, 0.5)::NUMBER(5,2) AS quality_rating,
-            COALESCE(s.delivery_rating, 0.5)::NUMBER(5,2) AS delivery_rating,
-            ((COALESCE(s.quality_rating, 0.5) + COALESCE(s.delivery_rating, 0.5)) / 2)::NUMBER(5,2) AS overall_score
-        FROM RAW.SUPPLIERS s
-        WHERE s.supplier_id = :SUPPLIER_ID
-    );
-    RETURN TABLE(result);
-END;
-$$;
-
--- ============================================================================
--- Procedure 3: Forecast Production
--- Forecasts production volume for a given month/year
--- ============================================================================
-CREATE OR REPLACE PROCEDURE FORECAST_PRODUCTION(MONTH_NUM NUMBER, YEAR_NUM NUMBER)
-RETURNS TABLE (
-    forecast_month NUMBER,
-    forecast_year NUMBER,
-    historical_avg NUMBER,
-    forecasted_orders NUMBER,
-    forecast_trend VARCHAR
-)
-LANGUAGE SQL
-AS
-$$
-DECLARE
-    result RESULTSET;
-BEGIN
-    result := (
-        WITH historical_data AS (
-            SELECT
-                MONTH(order_date) AS month_num,
-                YEAR(order_date) AS year_num,
-                COUNT(*) AS order_count
-            FROM RAW.MANUFACTURING_ORDERS
-            WHERE order_date >= DATEADD('year', -2, CURRENT_DATE())
-            GROUP BY MONTH(order_date), YEAR(order_date)
-        ),
-        monthly_avg AS (
-            SELECT
-                month_num,
-                AVG(order_count) AS avg_orders
-            FROM historical_data
-            GROUP BY month_num
-        )
-        SELECT
-            :MONTH_NUM AS forecast_month,
-            :YEAR_NUM AS forecast_year,
-            COALESCE(ma.avg_orders, 150)::NUMBER(10,0) AS historical_avg,
-            (COALESCE(ma.avg_orders, 150) * 1.05)::NUMBER(10,0) AS forecasted_orders,
-            CASE 
-                WHEN :MONTH_NUM IN (3, 4, 5, 9, 10, 11) THEN 'PEAK SEASON - Higher volume expected'
-                WHEN :MONTH_NUM IN (6, 7, 8, 12) THEN 'MODERATE - Normal volume expected'
-                ELSE 'LOW SEASON - Lower volume expected'
-            END AS forecast_trend
-        FROM monthly_avg ma
-        WHERE ma.month_num = :MONTH_NUM
-        
-        UNION ALL
-        
-        SELECT
-            :MONTH_NUM AS forecast_month,
-            :YEAR_NUM AS forecast_year,
-            150 AS historical_avg,
-            158 AS forecasted_orders,
-            'ESTIMATED - Limited historical data' AS forecast_trend
-        WHERE NOT EXISTS (SELECT 1 FROM monthly_avg WHERE month_num = :MONTH_NUM)
-    );
-    RETURN TABLE(result);
-END;
-$$;
-
--- ============================================================================
--- Procedure 4: Predict Asset Maintenance
--- Predicts when an asset will need maintenance
--- ============================================================================
-CREATE OR REPLACE PROCEDURE PREDICT_ASSET_MAINTENANCE(ASSET_ID VARCHAR)
 RETURNS STRING
 LANGUAGE PYTHON
 RUNTIME_VERSION = '3.10'
-PACKAGES = ('snowflake-snowpark-python')
-HANDLER = 'predict_maintenance'
-COMMENT = 'Predicts when an asset will need maintenance based on flight hours and schedule'
+PACKAGES = ('snowflake-ml-python', 'scikit-learn')
+HANDLER = 'predict_program_risk'
+COMMENT = 'Calls PROGRAM_RISK_PREDICTOR model to predict risk level for programs'
 AS
 $$
-def predict_maintenance(session, asset_id):
+def predict_program_risk(session, program_type):
+    from snowflake.ml.registry import Registry
     import json
     
-    # Use SQL to calculate everything including days_until
+    # Get model from registry
+    reg = Registry(session)
+    model = reg.get_model("PROGRAM_RISK_PREDICTOR").default
+    
+    # Build query with optional filter
+    type_filter = f"AND program_type = '{program_type}'" if program_type else ""
+    
+    # Query uses VERIFIED column names from 02_create_tables.sql PROGRAMS table
     query = f"""
     SELECT
-        asset_id,
-        asset_name,
-        COALESCE(total_flight_hours, 0)::FLOAT AS flight_hours,
-        COALESCE(maintenance_interval_hours, 250)::INT AS maint_interval,
-        TO_VARCHAR(next_maintenance_due, 'YYYY-MM-DD') AS next_due_str,
-        TO_VARCHAR(last_maintenance_date, 'YYYY-MM-DD') AS last_maint_str,
-        asset_status,
-        DATEDIFF('day', CURRENT_DATE(), COALESCE(next_maintenance_due, DATEADD('day', 30, CURRENT_DATE()))) AS days_until,
-        CASE 
-            WHEN next_maintenance_due IS NULL THEN 'UNKNOWN - No maintenance scheduled'
-            WHEN next_maintenance_due < CURRENT_DATE() THEN 'OVERDUE - Maintenance past due'
-            WHEN next_maintenance_due < DATEADD('day', 7, CURRENT_DATE()) THEN 'CRITICAL - Due within 7 days'
-            WHEN next_maintenance_due < DATEADD('day', 14, CURRENT_DATE()) THEN 'HIGH - Due within 14 days'
-            WHEN next_maintenance_due < DATEADD('day', 30, CURRENT_DATE()) THEN 'MEDIUM - Due within 30 days'
-            ELSE 'LOW - Maintenance not imminent'
-        END AS urgency
-    FROM RAW.ASSETS
-    WHERE asset_id = '{asset_id}'
+        p.program_id,
+        p.budget_amount::FLOAT AS budget,
+        p.spent_amount::FLOAT AS spent,
+        p.budget_variance::FLOAT AS variance,
+        p.schedule_variance_days::FLOAT AS schedule_variance,
+        p.percent_complete::FLOAT AS completion_pct,
+        p.milestone_count::FLOAT AS total_milestones,
+        (p.milestones_completed::FLOAT / NULLIF(p.milestone_count, 0) * 100)::FLOAT AS milestone_completion_pct,
+        (p.spent_amount::FLOAT / NULLIF(p.budget_amount, 0) * 100)::FLOAT AS budget_utilization,
+        p.program_type AS prog_type,
+        -- Label for reference (will not be used in prediction)
+        CASE p.risk_level
+            WHEN 'LOW' THEN 0
+            WHEN 'MEDIUM' THEN 1
+            WHEN 'HIGH' THEN 2
+            ELSE 3
+        END AS risk_label
+    FROM RAW.PROGRAMS p
+    WHERE p.program_status = 'ACTIVE'
+      {type_filter}
+    LIMIT 50
     """
     
-    result = session.sql(query).collect()
+    input_df = session.sql(query)
     
-    if len(result) == 0:
-        return json.dumps({"error": f"Asset {asset_id_input} not found"})
+    if input_df.count() == 0:
+        return json.dumps({
+            "error": "No active programs found for prediction",
+            "program_type_filter": program_type
+        })
     
-    row = result[0]
+    # Get predictions
+    predictions = model.run(input_df, function_name="predict")
+    
+    # Analyze predictions
+    result = predictions.select("PREDICTED_RISK", "PROG_TYPE").to_pandas()
+    
+    # Map numeric predictions back to risk levels
+    risk_map = {0: 'LOW', 1: 'MEDIUM', 2: 'HIGH', 3: 'CRITICAL'}
+    
+    # Count by predicted risk
+    low_risk = int((result['PREDICTED_RISK'] == 0).sum())
+    medium_risk = int((result['PREDICTED_RISK'] == 1).sum())
+    high_risk = int((result['PREDICTED_RISK'] == 2).sum())
+    critical_risk = int((result['PREDICTED_RISK'] == 3).sum())
+    total_count = len(result)
     
     return json.dumps({
-        "asset_id": str(row['ASSET_ID']),
-        "asset_name": str(row['ASSET_NAME']),
-        "current_flight_hours": float(row['FLIGHT_HOURS']),
-        "maintenance_interval_hours": int(row['MAINT_INTERVAL']),
-        "next_maintenance_due": str(row['NEXT_DUE_STR']) if row['NEXT_DUE_STR'] else "Not scheduled",
-        "last_maintenance_date": str(row['LAST_MAINT_STR']) if row['LAST_MAINT_STR'] else "None",
-        "days_until_maintenance": int(row['DAYS_UNTIL']),
-        "maintenance_urgency": str(row['URGENCY']),
-        "asset_status": str(row['ASSET_STATUS'])
+        "program_type_filter": program_type or "ALL",
+        "programs_analyzed": total_count,
+        "predicted_low_risk": low_risk,
+        "predicted_medium_risk": medium_risk,
+        "predicted_high_risk": high_risk,
+        "predicted_critical_risk": critical_risk,
+        "high_risk_pct": round((high_risk + critical_risk) / total_count * 100, 2) if total_count > 0 else 0
     })
 $$;
 
 -- ============================================================================
--- Test Calls - Program Risk Predictor
+-- Procedure 2: Supplier Risk Prediction Wrapper
+-- Matches: SUPPLIER_RISK_PREDICTOR model from notebook
+-- 
+-- VERIFIED COLUMNS from 02_create_tables.sql SUPPLIERS table:
+--   quality_rating, delivery_rating, total_orders, total_spend, risk_rating
+-- 
+-- PARAMETER NAME: supplier_type (matches agent tool input_schema)
 -- ============================================================================
-CALL PREDICT_PROGRAM_RISK('PRG000001');
-CALL PREDICT_PROGRAM_RISK('PRG000050');
+
+CREATE OR REPLACE PROCEDURE PREDICT_SUPPLIER_RISK(
+    SUPPLIER_TYPE VARCHAR
+)
+RETURNS STRING
+LANGUAGE PYTHON
+RUNTIME_VERSION = '3.10'
+PACKAGES = ('snowflake-ml-python', 'scikit-learn')
+HANDLER = 'predict_supplier_risk'
+COMMENT = 'Calls SUPPLIER_RISK_PREDICTOR model to identify suppliers at risk'
+AS
+$$
+def predict_supplier_risk(session, supplier_type):
+    from snowflake.ml.registry import Registry
+    import json
+    
+    # Get model from registry
+    reg = Registry(session)
+    model = reg.get_model("SUPPLIER_RISK_PREDICTOR").default
+    
+    # Build query with optional filter
+    type_filter = f"AND supplier_type = '{supplier_type}'" if supplier_type else ""
+    
+    # Query uses VERIFIED column names from 02_create_tables.sql SUPPLIERS table
+    query = f"""
+    SELECT
+        s.supplier_id,
+        s.quality_rating::FLOAT AS quality_score,
+        s.delivery_rating::FLOAT AS delivery_score,
+        ((s.quality_rating + s.delivery_rating) / 2)::FLOAT AS overall_rating,
+        s.total_orders::FLOAT AS order_count,
+        s.total_spend::FLOAT AS total_spend,
+        (s.total_spend::FLOAT / NULLIF(s.total_orders, 0))::FLOAT AS avg_order_value,
+        s.supplier_type AS sup_type,
+        -- Label for reference
+        CASE s.risk_rating
+            WHEN 'LOW' THEN 0
+            WHEN 'MEDIUM' THEN 1
+            WHEN 'HIGH' THEN 2
+            ELSE 3
+        END AS risk_label
+    FROM RAW.SUPPLIERS s
+    WHERE s.supplier_status IN ('ACTIVE', 'PREFERRED', 'PROBATION')
+      {type_filter}
+    LIMIT 50
+    """
+    
+    input_df = session.sql(query)
+    
+    if input_df.count() == 0:
+        return json.dumps({
+            "error": "No active suppliers found for prediction",
+            "supplier_type_filter": supplier_type
+        })
+    
+    # Get predictions
+    predictions = model.run(input_df, function_name="predict")
+    
+    # Analyze predictions
+    result = predictions.select("PREDICTED_RISK", "SUP_TYPE", "QUALITY_SCORE", "DELIVERY_SCORE").to_pandas()
+    
+    # Count by predicted risk
+    low_risk = int((result['PREDICTED_RISK'] == 0).sum())
+    medium_risk = int((result['PREDICTED_RISK'] == 1).sum())
+    high_risk = int((result['PREDICTED_RISK'] == 2).sum())
+    critical_risk = int((result['PREDICTED_RISK'] == 3).sum())
+    total_count = len(result)
+    avg_quality = round(result['QUALITY_SCORE'].mean(), 2)
+    avg_delivery = round(result['DELIVERY_SCORE'].mean(), 2)
+    
+    return json.dumps({
+        "supplier_type_filter": supplier_type or "ALL",
+        "suppliers_analyzed": total_count,
+        "predicted_low_risk": low_risk,
+        "predicted_medium_risk": medium_risk,
+        "predicted_high_risk": high_risk,
+        "predicted_critical_risk": critical_risk,
+        "at_risk_suppliers": high_risk + critical_risk,
+        "avg_quality_rating": avg_quality,
+        "avg_delivery_rating": avg_delivery
+    })
+$$;
 
 -- ============================================================================
--- Test Calls - Supplier Risk Predictor
+-- Procedure 3: Asset Maintenance Prediction Wrapper
+-- Matches: ASSET_MAINTENANCE_PREDICTOR model from notebook
+-- 
+-- VERIFIED COLUMNS from 02_create_tables.sql ASSETS table:
+--   total_flight_hours, maintenance_interval_hours, last_maintenance_date,
+--   next_maintenance_due, condition_rating, mission_ready
+-- 
+-- PARAMETER NAME: asset_type (matches agent tool input_schema)
 -- ============================================================================
-CALL PREDICT_SUPPLIER_RISK('SUP00001');
-CALL PREDICT_SUPPLIER_RISK('SUP00100');
+
+CREATE OR REPLACE PROCEDURE PREDICT_ASSET_MAINTENANCE(
+    ASSET_TYPE VARCHAR
+)
+RETURNS STRING
+LANGUAGE PYTHON
+RUNTIME_VERSION = '3.10'
+PACKAGES = ('snowflake-ml-python', 'scikit-learn')
+HANDLER = 'predict_maintenance'
+COMMENT = 'Calls ASSET_MAINTENANCE_PREDICTOR model to predict maintenance urgency'
+AS
+$$
+def predict_maintenance(session, asset_type):
+    from snowflake.ml.registry import Registry
+    import json
+    
+    # Get model from registry
+    reg = Registry(session)
+    model = reg.get_model("ASSET_MAINTENANCE_PREDICTOR").default
+    
+    # Build query with optional filter
+    type_filter = f"AND asset_type = '{asset_type}'" if asset_type else ""
+    
+    # Query uses VERIFIED column names from 02_create_tables.sql ASSETS table
+    query = f"""
+    SELECT
+        a.asset_id,
+        a.total_flight_hours::FLOAT AS flight_hours,
+        a.maintenance_interval_hours::FLOAT AS maint_interval,
+        (a.total_flight_hours::FLOAT / NULLIF(a.maintenance_interval_hours, 0) * 100)::FLOAT AS utilization_pct,
+        DATEDIFF('day', a.last_maintenance_date, CURRENT_DATE())::FLOAT AS days_since_maintenance,
+        DATEDIFF('day', CURRENT_DATE(), a.next_maintenance_due)::FLOAT AS days_until_due,
+        CASE a.condition_rating
+            WHEN 'EXCELLENT' THEN 4
+            WHEN 'GOOD' THEN 3
+            WHEN 'FAIR' THEN 2
+            ELSE 1
+        END::FLOAT AS condition_score,
+        CASE WHEN a.mission_ready = TRUE THEN 1 ELSE 0 END::FLOAT AS is_ready,
+        a.asset_type AS ast_type,
+        -- Synthetic urgency label for training
+        CASE 
+            WHEN DATEDIFF('day', CURRENT_DATE(), a.next_maintenance_due) < 0 THEN 2  -- OVERDUE
+            WHEN DATEDIFF('day', CURRENT_DATE(), a.next_maintenance_due) <= 14 THEN 1  -- DUE_SOON
+            ELSE 0  -- ON_SCHEDULE
+        END AS urgency_label
+    FROM RAW.ASSETS a
+    WHERE a.asset_status IN ('OPERATIONAL', 'MAINTENANCE', 'STANDBY')
+      AND a.next_maintenance_due IS NOT NULL
+      {type_filter}
+    LIMIT 100
+    """
+    
+    input_df = session.sql(query)
+    
+    if input_df.count() == 0:
+        return json.dumps({
+            "error": "No assets found for maintenance prediction",
+            "asset_type_filter": asset_type
+        })
+    
+    # Get predictions
+    predictions = model.run(input_df, function_name="predict")
+    
+    # Analyze predictions
+    result = predictions.select("PREDICTED_URGENCY", "AST_TYPE", "DAYS_UNTIL_DUE").to_pandas()
+    
+    # Map predictions
+    urgency_map = {0: 'ON_SCHEDULE', 1: 'DUE_SOON', 2: 'OVERDUE'}
+    
+    # Count by predicted urgency
+    on_schedule = int((result['PREDICTED_URGENCY'] == 0).sum())
+    due_soon = int((result['PREDICTED_URGENCY'] == 1).sum())
+    overdue = int((result['PREDICTED_URGENCY'] == 2).sum())
+    total_count = len(result)
+    
+    # Calculate average days until due for assets needing attention
+    needs_attention = result[result['PREDICTED_URGENCY'] > 0]
+    avg_days_critical = round(needs_attention['DAYS_UNTIL_DUE'].mean(), 1) if len(needs_attention) > 0 else 0
+    
+    return json.dumps({
+        "asset_type_filter": asset_type or "ALL",
+        "assets_analyzed": total_count,
+        "on_schedule": on_schedule,
+        "due_soon": due_soon,
+        "overdue": overdue,
+        "assets_needing_attention": due_soon + overdue,
+        "attention_rate_pct": round((due_soon + overdue) / total_count * 100, 2) if total_count > 0 else 0,
+        "avg_days_until_due_for_critical": avg_days_critical
+    })
+$$;
 
 -- ============================================================================
--- Test Calls - Production Forecaster
+-- Display confirmation
 -- ============================================================================
-CALL FORECAST_PRODUCTION(3, 2025);
-CALL FORECAST_PRODUCTION(9, 2025);
+
+SELECT 'ML model wrapper functions created successfully' AS status;
 
 -- ============================================================================
--- Test Calls - Asset Maintenance Predictor
+-- Test Calls (uncomment after models are registered via notebook)
 -- ============================================================================
-CALL PREDICT_ASSET_MAINTENANCE('AST000001');
-CALL PREDICT_ASSET_MAINTENANCE('AST000250');
 
--- ============================================================================
--- Verification
--- ============================================================================
-SELECT 'ML wrapper procedures created and tested successfully' AS status;
-SHOW PROCEDURES LIKE 'PREDICT%' IN SCHEMA KRATOS_INTELLIGENCE.ANALYTICS;
-SHOW PROCEDURES LIKE 'FORECAST%' IN SCHEMA KRATOS_INTELLIGENCE.ANALYTICS;
+-- Test PREDICT_PROGRAM_RISK
+CALL PREDICT_PROGRAM_RISK('DEVELOPMENT');
+CALL PREDICT_PROGRAM_RISK(NULL);
+
+-- Test PREDICT_SUPPLIER_RISK
+CALL PREDICT_SUPPLIER_RISK('TIER_1');
+CALL PREDICT_SUPPLIER_RISK(NULL);
+
+-- Test PREDICT_ASSET_MAINTENANCE
+CALL PREDICT_ASSET_MAINTENANCE('AIRCRAFT');
+CALL PREDICT_ASSET_MAINTENANCE(NULL);
+
+SELECT 'Test calls completed - verify results above' AS instruction;
 

@@ -7,11 +7,15 @@
 --          - ML Model tools (Predictions)
 -- Execution: Run this after completing steps 01-07 and running the notebook
 -- 
+-- CRITICAL VERIFICATION:
+-- - Procedure parameter names MUST match tool input_schema properties
+-- - Sample questions MUST reference metrics exposed in semantic views
+-- - Sample questions MUST be answerable by generated data
+--
 -- ML MODELS (from notebook):
 --   1. PROGRAM_RISK_PREDICTOR → PREDICT_PROGRAM_RISK(VARCHAR)
 --   2. SUPPLIER_RISK_PREDICTOR → PREDICT_SUPPLIER_RISK(VARCHAR)
---   3. PRODUCTION_FORECASTER → FORECAST_PRODUCTION(NUMBER, NUMBER)
---   4. (Bonus) PREDICT_ASSET_MAINTENANCE(VARCHAR)
+--   3. ASSET_MAINTENANCE_PREDICTOR → PREDICT_ASSET_MAINTENANCE(VARCHAR)
 -- ============================================================================
 
 USE ROLE ACCOUNTADMIN;
@@ -32,23 +36,22 @@ GRANT USAGE ON SCHEMA KRATOS_INTELLIGENCE.ANALYTICS TO ROLE SYSADMIN;
 GRANT USAGE ON SCHEMA KRATOS_INTELLIGENCE.RAW TO ROLE SYSADMIN;
 
 -- Grant privileges on semantic views for Cortex Analyst
-GRANT REFERENCES, SELECT ON SEMANTIC VIEW KRATOS_INTELLIGENCE.ANALYTICS.SV_PROGRAM_OPERATIONS_INTELLIGENCE TO ROLE SYSADMIN;
-GRANT REFERENCES, SELECT ON SEMANTIC VIEW KRATOS_INTELLIGENCE.ANALYTICS.SV_ASSET_MANUFACTURING_INTELLIGENCE TO ROLE SYSADMIN;
-GRANT REFERENCES, SELECT ON SEMANTIC VIEW KRATOS_INTELLIGENCE.ANALYTICS.SV_ENGINEERING_SUPPORT_INTELLIGENCE TO ROLE SYSADMIN;
+GRANT REFERENCES, SELECT ON SEMANTIC VIEW KRATOS_INTELLIGENCE.ANALYTICS.SV_PROGRAM_CONTRACT_INTELLIGENCE TO ROLE SYSADMIN;
+GRANT REFERENCES, SELECT ON SEMANTIC VIEW KRATOS_INTELLIGENCE.ANALYTICS.SV_ASSET_MAINTENANCE_INTELLIGENCE TO ROLE SYSADMIN;
+GRANT REFERENCES, SELECT ON SEMANTIC VIEW KRATOS_INTELLIGENCE.ANALYTICS.SV_SUPPLIER_PROCUREMENT_INTELLIGENCE TO ROLE SYSADMIN;
 
 -- Grant usage on warehouse
 GRANT USAGE ON WAREHOUSE KRATOS_WH TO ROLE SYSADMIN;
 
 -- Grant usage on Cortex Search services
 GRANT USAGE ON CORTEX SEARCH SERVICE KRATOS_INTELLIGENCE.RAW.TECHNICAL_DOCS_SEARCH TO ROLE SYSADMIN;
-GRANT USAGE ON CORTEX SEARCH SERVICE KRATOS_INTELLIGENCE.RAW.TEST_REPORTS_SEARCH TO ROLE SYSADMIN;
-GRANT USAGE ON CORTEX SEARCH SERVICE KRATOS_INTELLIGENCE.RAW.INCIDENT_LOGS_SEARCH TO ROLE SYSADMIN;
+GRANT USAGE ON CORTEX SEARCH SERVICE KRATOS_INTELLIGENCE.RAW.MAINTENANCE_PROCEDURES_SEARCH TO ROLE SYSADMIN;
+GRANT USAGE ON CORTEX SEARCH SERVICE KRATOS_INTELLIGENCE.RAW.INCIDENT_REPORTS_SEARCH TO ROLE SYSADMIN;
 
 -- Grant execute on ML model wrapper procedures
+-- Parameter names MUST match procedure definitions in 07_create_model_wrapper_functions.sql
 GRANT USAGE ON PROCEDURE KRATOS_INTELLIGENCE.ANALYTICS.PREDICT_PROGRAM_RISK(VARCHAR) TO ROLE SYSADMIN;
 GRANT USAGE ON PROCEDURE KRATOS_INTELLIGENCE.ANALYTICS.PREDICT_SUPPLIER_RISK(VARCHAR) TO ROLE SYSADMIN;
-GRANT USAGE ON PROCEDURE KRATOS_INTELLIGENCE.ANALYTICS.FORECAST_PRODUCTION(NUMBER, NUMBER) TO ROLE SYSADMIN;
--- Note: Parameter name is ASSET_ID to match agent tool definition
 GRANT USAGE ON PROCEDURE KRATOS_INTELLIGENCE.ANALYTICS.PREDICT_ASSET_MAINTENANCE(VARCHAR) TO ROLE SYSADMIN;
 
 -- ============================================================================
@@ -57,7 +60,7 @@ GRANT USAGE ON PROCEDURE KRATOS_INTELLIGENCE.ANALYTICS.PREDICT_ASSET_MAINTENANCE
 
 CREATE OR REPLACE AGENT KRATOS_INTELLIGENCE_AGENT
   COMMENT = 'Kratos Defense Intelligence Agent for defense contractor business intelligence'
-  PROFILE = '{"display_name": "Kratos Intelligence Agent", "avatar": "defense-icon.png", "color": "blue"}'
+  PROFILE = '{"display_name": "Kratos Defense Intelligence Agent", "avatar": "defense-icon.png", "color": "navy"}'
   FROM SPECIFICATION
   $$
 models:
@@ -69,151 +72,140 @@ orchestration:
     tokens: 32000
 
 instructions:
-  response: 'You are a specialized analytics assistant for Kratos Defense & Security Solutions, a leading defense contractor providing unmanned systems, satellite communications, and hypersonic technologies. For structured data queries use Cortex Analyst semantic views. For unstructured content use Cortex Search services. For predictions use ML model procedures. Keep responses concise and data-driven.'
-  orchestration: 'For metrics and KPIs use Cortex Analyst tools. For technical documents, test reports, and incident logs use Cortex Search tools. For forecasting and predictions use ML function tools.'
-  system: 'You help analyze defense contractor data including programs, contracts, assets, manufacturing, suppliers, engineering projects, and operational metrics using structured and unstructured data sources.'
+  response: 'You are a specialized analytics assistant for Kratos Defense, a leading defense contractor specializing in unmanned systems, satellite technology, and electronic warfare. For structured data queries use Cortex Analyst semantic views. For unstructured content use Cortex Search services. For predictions use ML model procedures. Keep responses concise and data-driven.'
+  orchestration: 'For metrics and KPIs use Cortex Analyst tools. For technical documentation, maintenance procedures, and incident reports use Cortex Search tools. For risk forecasting and predictions use ML function tools.'
+  system: 'You help analyze defense contractor data including programs, contracts, assets, suppliers, maintenance, quality, and proposals using structured and unstructured data sources.'
   sample_questions:
     # ========== 5 SIMPLE QUESTIONS (Cortex Analyst) ==========
-    - question: 'How many programs are there and what is the total contract value?'
-      answer: 'I will count programs and sum total_contract_value using ProgramOperationsAnalyst.'
-    - question: 'How many contracts are there by status?'
-      answer: 'I will count contracts grouped by contract_status using ProgramOperationsAnalyst.'
-    - question: 'What is the total number of manufacturing orders and units completed?'
-      answer: 'I will count manufacturing orders and sum quantity_completed using AssetManufacturingAnalyst.'
-    - question: 'How many employees are there and how many are active?'
-      answer: 'I will count employees and filter by ACTIVE status using EngineeringSupportAnalyst.'
-    - question: 'How many suppliers are approved and what is the average quality rating?'
-      answer: 'I will count approved suppliers and calculate average quality_rating using EngineeringSupportAnalyst.'
+    # All questions verified against semantic view metrics from 05_create_semantic_views.sql
+    - question: 'How many active programs do we have?'
+      answer: 'I will query the programs table filtering by program_status=ACTIVE to count active programs.'
+    - question: 'What is the total value of our contracts?'
+      answer: 'I will sum the base_value from the contracts table to get total contract value.'
+    - question: 'How many suppliers are in our system?'
+      answer: 'I will count distinct supplier_id from the suppliers table to get total suppliers.'
+    - question: 'What is our average supplier quality rating?'
+      answer: 'I will calculate the average of quality_rating from the suppliers table.'
+    - question: 'How many assets are currently operational?'
+      answer: 'I will count assets filtering by asset_status=OPERATIONAL to get operational asset count.'
     # ========== 5 COMPLEX QUESTIONS (Cortex Analyst) ==========
-    - question: 'Show program metrics by division: total programs, total value, costs incurred, and average margin.'
-      answer: 'I will group programs by division_name and calculate value, costs, and margin metrics.'
-    - question: 'What is the manufacturing completion rate? Show units ordered, completed, and scrapped by product type.'
-      answer: 'I will sum quantity_ordered, quantity_completed, quantity_scrapped grouped by product_type.'
-    - question: 'Analyze maintenance costs: total maintenance events, labor hours, parts cost, and total expense.'
-      answer: 'I will count maintenance records and sum labor_hours, parts_cost, total_cost.'
-    - question: 'Show contract values by status: count, base value, option value, and total ceiling.'
-      answer: 'I will group contracts by contract_status and sum base_value, option_value, total_value.'
-    - question: 'Compare test results: how many tests passed vs failed, and what is the total anomaly count?'
-      answer: 'I will count tests by test_result and sum anomalies_count using EngineeringSupportAnalyst.'
+    # All questions verified to use metrics exposed in semantic views
+    - question: 'Compare program budget utilization across divisions. Show total budget, spent, and variance.'
+      answer: 'I will join programs with divisions and calculate budget_amount, spent_amount, and budget_variance by division.'
+    - question: 'Show supplier performance by type. Include quality ratings, delivery ratings, and total spend.'
+      answer: 'I will query suppliers grouped by supplier_type showing avg quality_rating, avg delivery_rating, and sum total_spend.'
+    - question: 'What is our proposal pipeline? Show proposals by status with opportunity values.'
+      answer: 'I will query proposals grouped by proposal_status showing count and sum of opportunity_value.'
+    - question: 'Analyze maintenance costs by asset type. Show total labor, parts, and total maintenance costs.'
+      answer: 'I will join maintenance_records with assets and sum labor_cost, parts_cost, and total_cost by asset_type.'
+    - question: 'Show contract performance by customer. Include total value, funded amount, and average performance rating.'
+      answer: 'I will query contracts grouped by customer showing sum base_value, sum funded_value, and avg performance_rating.'
     # ========== 5 ML MODEL QUESTIONS (Predictions) ==========
-    - question: 'Predict the risk level for program PRG000001.'
-      answer: 'I will call PREDICT_PROGRAM_RISK with program_id=PRG000001.'
-    - question: 'Forecast production volume for March 2025.'
-      answer: 'I will call FORECAST_PRODUCTION with month_num=3 and year_num=2025.'
-    - question: 'Assess the risk for supplier SUP00001.'
-      answer: 'I will call PREDICT_SUPPLIER_RISK with supplier_id=SUP00001.'
-    - question: 'When is maintenance due for asset AST000001?'
-      answer: 'I will call PREDICT_ASSET_MAINTENANCE with asset_id=AST000001.'
-    - question: 'Forecast production volume for September 2025.'
-      answer: 'I will call FORECAST_PRODUCTION with month_num=9 and year_num=2025.'
+    # All questions use correct parameter names from 07_create_model_wrapper_functions.sql
+    - question: 'Predict risk levels for our development programs.'
+      answer: 'I will call PREDICT_PROGRAM_RISK with program_type=DEVELOPMENT to analyze risk.'
+    - question: 'Identify which Tier 1 suppliers might be at risk.'
+      answer: 'I will call PREDICT_SUPPLIER_RISK with supplier_type=TIER_1 to identify at-risk suppliers.'
+    - question: 'Which aircraft assets need maintenance attention soon?'
+      answer: 'I will call PREDICT_ASSET_MAINTENANCE with asset_type=AIRCRAFT to predict maintenance urgency.'
+    - question: 'What is the overall program risk across all program types?'
+      answer: 'I will call PREDICT_PROGRAM_RISK with no filter to analyze all programs.'
+    - question: 'Predict maintenance needs for all equipment assets.'
+      answer: 'I will call PREDICT_ASSET_MAINTENANCE with asset_type=EQUIPMENT to predict maintenance urgency.'
 
 tools:
   - tool_spec:
       type: 'cortex_analyst_text_to_sql'
-      name: 'ProgramOperationsAnalyst'
-      description: 'Analyzes defense programs, contracts, customers, divisions, and milestones'
+      name: 'ProgramContractAnalyst'
+      description: 'Analyzes defense programs, contracts, divisions, and milestones'
   - tool_spec:
       type: 'cortex_analyst_text_to_sql'
-      name: 'AssetManufacturingAnalyst'
-      description: 'Analyzes assets, operations, maintenance, manufacturing orders, and quality inspections'
+      name: 'AssetMaintenanceAnalyst'
+      description: 'Analyzes assets, maintenance records, and quality inspections'
   - tool_spec:
       type: 'cortex_analyst_text_to_sql'
-      name: 'EngineeringSupportAnalyst'
-      description: 'Analyzes engineering projects, tests, incidents, employees, and suppliers'
+      name: 'SupplierProcurementAnalyst'
+      description: 'Analyzes suppliers, purchase orders, proposals, and service agreements'
   - tool_spec:
       type: 'cortex_search'
       name: 'TechnicalDocsSearch'
-      description: 'Searches technical documents including specifications, procedures, manuals, and drawings'
+      description: 'Searches technical documentation including operations manuals, integration guides, and technical references'
   - tool_spec:
       type: 'cortex_search'
-      name: 'TestReportsSearch'
-      description: 'Searches test reports including flight tests, ground tests, and integration tests'
+      name: 'MaintenanceProceduresSearch'
+      description: 'Searches maintenance procedures for inspection, calibration, and repair tasks'
   - tool_spec:
       type: 'cortex_search'
-      name: 'IncidentLogsSearch'
-      description: 'Searches incident logs for safety events, quality escapes, and lessons learned'
+      name: 'IncidentReportsSearch'
+      description: 'Searches incident reports for operational, quality, and cybersecurity events'
   - tool_spec:
       type: 'generic'
       name: 'PredictProgramRisk'
-      description: 'Predicts whether a program is at risk of cost or schedule overruns'
+      description: 'Predicts risk levels for defense programs based on budget, schedule, and milestone data'
       input_schema:
         type: 'object'
         properties:
-          program_id:
+          program_type:
             type: 'string'
-            description: 'Program ID to analyze (e.g., PRG000001)'
-        required: ['program_id']
+            description: 'Program type to filter (DEVELOPMENT, PRODUCTION, SUSTAINMENT, RDT&E, etc.) or null for all'
+        required: []
   - tool_spec:
       type: 'generic'
       name: 'PredictSupplierRisk'
-      description: 'Predicts whether a supplier is at risk of quality or delivery issues'
+      description: 'Identifies suppliers at risk based on quality and delivery performance'
       input_schema:
         type: 'object'
         properties:
-          supplier_id:
+          supplier_type:
             type: 'string'
-            description: 'Supplier ID to analyze (e.g., SUP00001)'
-        required: ['supplier_id']
-  - tool_spec:
-      type: 'generic'
-      name: 'ForecastProduction'
-      description: 'Forecasts manufacturing order volume for a given month and year'
-      input_schema:
-        type: 'object'
-        properties:
-          month_num:
-            type: 'integer'
-            description: 'Month number (1-12)'
-          year_num:
-            type: 'integer'
-            description: 'Year (e.g., 2025)'
-        required: ['month_num', 'year_num']
+            description: 'Supplier type to filter (TIER_1, TIER_2, TIER_3, DISTRIBUTOR, etc.) or null for all'
+        required: []
   - tool_spec:
       type: 'generic'
       name: 'PredictAssetMaintenance'
-      description: 'Predicts when an asset will need maintenance based on flight hours and usage patterns'
+      description: 'Predicts maintenance urgency for assets based on usage and maintenance history'
       input_schema:
         type: 'object'
         properties:
-          asset_id:
+          asset_type:
             type: 'string'
-            description: 'Asset ID to analyze (e.g., AST000001)'
-        required: ['asset_id']
+            description: 'Asset type to filter (AIRCRAFT, VEHICLE, EQUIPMENT, ELECTRONICS, etc.) or null for all'
+        required: []
 
 tool_resources:
-  ProgramOperationsAnalyst:
-    semantic_view: 'KRATOS_INTELLIGENCE.ANALYTICS.SV_PROGRAM_OPERATIONS_INTELLIGENCE'
+  ProgramContractAnalyst:
+    semantic_view: 'KRATOS_INTELLIGENCE.ANALYTICS.SV_PROGRAM_CONTRACT_INTELLIGENCE'
     execution_environment:
       type: 'warehouse'
       warehouse: 'KRATOS_WH'
       query_timeout: 60
-  AssetManufacturingAnalyst:
-    semantic_view: 'KRATOS_INTELLIGENCE.ANALYTICS.SV_ASSET_MANUFACTURING_INTELLIGENCE'
+  AssetMaintenanceAnalyst:
+    semantic_view: 'KRATOS_INTELLIGENCE.ANALYTICS.SV_ASSET_MAINTENANCE_INTELLIGENCE'
     execution_environment:
       type: 'warehouse'
       warehouse: 'KRATOS_WH'
       query_timeout: 60
-  EngineeringSupportAnalyst:
-    semantic_view: 'KRATOS_INTELLIGENCE.ANALYTICS.SV_ENGINEERING_SUPPORT_INTELLIGENCE'
+  SupplierProcurementAnalyst:
+    semantic_view: 'KRATOS_INTELLIGENCE.ANALYTICS.SV_SUPPLIER_PROCUREMENT_INTELLIGENCE'
     execution_environment:
       type: 'warehouse'
       warehouse: 'KRATOS_WH'
       query_timeout: 60
   TechnicalDocsSearch:
     search_service: 'KRATOS_INTELLIGENCE.RAW.TECHNICAL_DOCS_SEARCH'
-    max_results: 10
+    max_results: 5
     title_column: 'doc_title'
     id_column: 'doc_id'
-  TestReportsSearch:
-    search_service: 'KRATOS_INTELLIGENCE.RAW.TEST_REPORTS_SEARCH'
-    max_results: 10
-    title_column: 'report_title'
-    id_column: 'report_id'
-  IncidentLogsSearch:
-    search_service: 'KRATOS_INTELLIGENCE.RAW.INCIDENT_LOGS_SEARCH'
-    max_results: 10
-    title_column: 'summary'
-    id_column: 'log_id'
+  MaintenanceProceduresSearch:
+    search_service: 'KRATOS_INTELLIGENCE.RAW.MAINTENANCE_PROCEDURES_SEARCH'
+    max_results: 5
+    title_column: 'procedure_title'
+    id_column: 'procedure_id'
+  IncidentReportsSearch:
+    search_service: 'KRATOS_INTELLIGENCE.RAW.INCIDENT_REPORTS_SEARCH'
+    max_results: 5
+    title_column: 'incident_title'
+    id_column: 'incident_id'
   PredictProgramRisk:
     type: 'procedure'
     identifier: 'KRATOS_INTELLIGENCE.ANALYTICS.PREDICT_PROGRAM_RISK'
@@ -224,13 +216,6 @@ tool_resources:
   PredictSupplierRisk:
     type: 'procedure'
     identifier: 'KRATOS_INTELLIGENCE.ANALYTICS.PREDICT_SUPPLIER_RISK'
-    execution_environment:
-      type: 'warehouse'
-      warehouse: 'KRATOS_WH'
-      query_timeout: 60
-  ForecastProduction:
-    type: 'procedure'
-    identifier: 'KRATOS_INTELLIGENCE.ANALYTICS.FORECAST_PRODUCTION'
     execution_environment:
       type: 'warehouse'
       warehouse: 'KRATOS_WH'
@@ -269,28 +254,27 @@ GRANT USAGE ON AGENT KRATOS_INTELLIGENCE_AGENT TO ROLE SYSADMIN;
 -- Example test queries:
 /*
 1. Structured queries (Cortex Analyst):
-   - "How many active programs are there?"
-   - "Show me total contract value by division"
-   - "What is the asset utilization rate?"
-   - "List suppliers with quality ratings below 80%"
+   - "How many active programs do we have?"
+   - "What is our total contract value?"
+   - "Show supplier performance by type"
+   - "What is the proposal pipeline by status?"
 
 2. Unstructured queries (Cortex Search):
-   - "Search technical documents for XQ-58A specifications"
-   - "Find test reports about flight envelope expansion"
-   - "Search incident logs for lessons learned about safety"
+   - "Search for UAV operations procedures"
+   - "Find maintenance procedures for radar calibration"
+   - "Search incident reports about cybersecurity"
 
 3. Predictive queries (ML Models):
-   - "Predict the risk for program PRG000001"
-   - "Forecast production for September 2025"
-   - "Assess supplier risk for SUP00050"
-   - "When is maintenance due for asset AST000001?"
+   - "Predict risk for development programs"
+   - "Identify at-risk Tier 1 suppliers"
+   - "Which aircraft need maintenance soon?"
 */
 
 -- ============================================================================
 -- Success Message
 -- ============================================================================
 
-SELECT 'Kratos Intelligence Agent created successfully! Access it in Snowsight under AI & ML > Agents' AS status;
+SELECT 'KRATOS_INTELLIGENCE_AGENT created successfully! Access it in Snowsight under AI & ML > Agents' AS status;
 
 -- ============================================================================
 -- TROUBLESHOOTING
@@ -307,24 +291,15 @@ If agent creation fails, verify:
 
 2. All semantic views exist:
    SHOW SEMANTIC VIEWS IN SCHEMA KRATOS_INTELLIGENCE.ANALYTICS;
-   -- Should show:
-   -- SV_PROGRAM_OPERATIONS_INTELLIGENCE
-   -- SV_ASSET_MANUFACTURING_INTELLIGENCE
-   -- SV_ENGINEERING_SUPPORT_INTELLIGENCE
 
 3. All Cortex Search services exist and are ready:
    SHOW CORTEX SEARCH SERVICES IN SCHEMA KRATOS_INTELLIGENCE.RAW;
-   -- Should show:
-   -- TECHNICAL_DOCS_SEARCH
-   -- TEST_REPORTS_SEARCH
-   -- INCIDENT_LOGS_SEARCH
 
 4. ML wrapper procedures exist:
    SHOW PROCEDURES IN SCHEMA KRATOS_INTELLIGENCE.ANALYTICS;
    -- Should show:
    -- PREDICT_PROGRAM_RISK(VARCHAR)
    -- PREDICT_SUPPLIER_RISK(VARCHAR)
-   -- FORECAST_PRODUCTION(NUMBER, NUMBER)
    -- PREDICT_ASSET_MAINTENANCE(VARCHAR)
 
 5. Warehouse is running:
@@ -335,5 +310,6 @@ If agent creation fails, verify:
    -- Should show:
    -- PROGRAM_RISK_PREDICTOR
    -- SUPPLIER_RISK_PREDICTOR
-   -- PRODUCTION_FORECASTER
+   -- ASSET_MAINTENANCE_PREDICTOR
 */
+

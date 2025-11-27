@@ -1,30 +1,32 @@
 -- ============================================================================
 -- Kratos Defense Intelligence Agent - Database and Schema Setup
 -- ============================================================================
+-- Purpose: Initialize the database, schema, and warehouse for the Kratos
+--          Defense Intelligence Agent solution
+-- Syntax: Verified against Snowflake SQL Reference
+-- ============================================================================
 
-USE ROLE ACCOUNTADMIN;
-
--- Create warehouse
-CREATE WAREHOUSE IF NOT EXISTS KRATOS_WH
-    WAREHOUSE_SIZE = 'MEDIUM'
-    AUTO_SUSPEND = 300
-    AUTO_RESUME = TRUE
-    INITIALLY_SUSPENDED = TRUE;
-
--- Create database
+-- Create the database
 CREATE DATABASE IF NOT EXISTS KRATOS_INTELLIGENCE;
 
+-- Use the database
+USE DATABASE KRATOS_INTELLIGENCE;
+
 -- Create schemas
-CREATE SCHEMA IF NOT EXISTS KRATOS_INTELLIGENCE.RAW;
-CREATE SCHEMA IF NOT EXISTS KRATOS_INTELLIGENCE.ANALYTICS;
+CREATE SCHEMA IF NOT EXISTS RAW;
+CREATE SCHEMA IF NOT EXISTS ANALYTICS;
 
--- Grant privileges
-GRANT USAGE ON WAREHOUSE KRATOS_WH TO ROLE SYSADMIN;
-GRANT USAGE ON DATABASE KRATOS_INTELLIGENCE TO ROLE SYSADMIN;
-GRANT USAGE ON SCHEMA KRATOS_INTELLIGENCE.RAW TO ROLE SYSADMIN;
-GRANT USAGE ON SCHEMA KRATOS_INTELLIGENCE.ANALYTICS TO ROLE SYSADMIN;
-GRANT ALL ON SCHEMA KRATOS_INTELLIGENCE.RAW TO ROLE SYSADMIN;
-GRANT ALL ON SCHEMA KRATOS_INTELLIGENCE.ANALYTICS TO ROLE SYSADMIN;
+-- Create a virtual warehouse for query processing
+CREATE OR REPLACE WAREHOUSE KRATOS_WH WITH
+    WAREHOUSE_SIZE = 'X-SMALL'
+    AUTO_SUSPEND = 300
+    AUTO_RESUME = TRUE
+    INITIALLY_SUSPENDED = TRUE
+    COMMENT = 'Warehouse for Kratos Defense Intelligence Agent queries';
 
-SELECT 'Database and schemas created successfully' AS status;
+-- Set the warehouse as active
+USE WAREHOUSE KRATOS_WH;
+
+-- Display confirmation
+SELECT 'Database, schema, and warehouse setup completed successfully' AS STATUS;
 
