@@ -183,7 +183,7 @@ RETURNS TABLE (
     asset_name VARCHAR,
     current_flight_hours NUMBER,
     maintenance_interval NUMBER,
-    hours_until_maintenance NUMBER,
+    days_until_maintenance NUMBER,
     next_maintenance_date DATE,
     maintenance_urgency VARCHAR
 )
@@ -197,14 +197,16 @@ BEGIN
         SELECT
             a.asset_id,
             a.asset_name,
-            COALESCE(a.total_flight_hours, 0)::NUMBER(10,2) AS current_flight_hours,
-            COALESCE(a.maintenance_interval_hours, 250)::NUMBER(10,0) AS maintenance_interval,
-            GREATEST(0, COALESCE(a.maintenance_interval_hours, 250) - MOD(COALESCE(a.total_flight_hours, 0)::INT, COALESCE(a.maintenance_interval_hours, 250)))::NUMBER(10,2) AS hours_until_maintenance,
+            COALESCE(a.total_flight_hours, 0) AS current_flight_hours,
+            COALESCE(a.maintenance_interval_hours, 250) AS maintenance_interval,
+            DATEDIFF('day', CURRENT_DATE(), COALESCE(a.next_maintenance_due, DATEADD('day', 30, CURRENT_DATE()))) AS days_until_maintenance,
             COALESCE(a.next_maintenance_due, DATEADD('day', 30, CURRENT_DATE())) AS next_maintenance_date,
             CASE 
-                WHEN DATEDIFF('day', CURRENT_DATE(), COALESCE(a.next_maintenance_due, DATEADD('day', 90, CURRENT_DATE()))) < 7 THEN 'CRITICAL - Immediate attention required'
-                WHEN DATEDIFF('day', CURRENT_DATE(), COALESCE(a.next_maintenance_due, DATEADD('day', 90, CURRENT_DATE()))) < 14 THEN 'HIGH - Schedule maintenance soon'
-                WHEN DATEDIFF('day', CURRENT_DATE(), COALESCE(a.next_maintenance_due, DATEADD('day', 90, CURRENT_DATE()))) < 30 THEN 'MEDIUM - Plan maintenance'
+                WHEN a.next_maintenance_due IS NULL THEN 'UNKNOWN - No maintenance scheduled'
+                WHEN a.next_maintenance_due < CURRENT_DATE() THEN 'OVERDUE - Maintenance past due'
+                WHEN a.next_maintenance_due < DATEADD('day', 7, CURRENT_DATE()) THEN 'CRITICAL - Due within 7 days'
+                WHEN a.next_maintenance_due < DATEADD('day', 14, CURRENT_DATE()) THEN 'HIGH - Due within 14 days'
+                WHEN a.next_maintenance_due < DATEADD('day', 30, CURRENT_DATE()) THEN 'MEDIUM - Due within 30 days'
                 ELSE 'LOW - Maintenance not imminent'
             END AS maintenance_urgency
         FROM RAW.ASSETS a
