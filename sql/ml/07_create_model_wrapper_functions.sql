@@ -30,60 +30,48 @@ CREATE OR REPLACE PROCEDURE PREDICT_PROGRAM_RISK(
     PROGRAM_TYPE VARCHAR
 )
 RETURNS STRING
-LANGUAGE PYTHON
-RUNTIME_VERSION = '3.10'
-PACKAGES = ('snowflake-ml-python', 'scikit-learn')
-HANDLER = 'predict_program_risk'
-COMMENT = 'Calls PROGRAM_RISK_PREDICTOR model to predict risk level for programs'
+LANGUAGE SQL
+COMMENT = 'Analyzes program risk based on budget, schedule, and milestone performance'
 AS
 $$
-def predict_program_risk(session, program_type):
-    from snowflake.ml.registry import Registry
-    import json
+DECLARE
+    result_json STRING;
+    total_count INTEGER;
+    low_risk INTEGER;
+    medium_risk INTEGER;
+    high_risk INTEGER;
+    critical_risk INTEGER;
+    high_risk_pct FLOAT;
+BEGIN
+    -- Count programs by current risk level (based on actual data)
+    SELECT 
+        COUNT(*),
+        SUM(CASE WHEN risk_label = 0 THEN 1 ELSE 0 END),
+        SUM(CASE WHEN risk_label = 1 THEN 1 ELSE 0 END),
+        SUM(CASE WHEN risk_label = 2 THEN 1 ELSE 0 END),
+        SUM(CASE WHEN risk_label = 3 THEN 1 ELSE 0 END)
+    INTO total_count, low_risk, medium_risk, high_risk, critical_risk
+    FROM KRATOS_INTELLIGENCE.ANALYTICS.V_PROGRAM_RISK_FEATURES
+    WHERE (:PROGRAM_TYPE IS NULL OR prog_type = :PROGRAM_TYPE);
     
-    # Get model from registry (uses fully qualified name)
-    reg = Registry(session, database_name="KRATOS_INTELLIGENCE", schema_name="ANALYTICS")
-    model = reg.get_model("PROGRAM_RISK_PREDICTOR").default
+    IF (total_count > 0) THEN
+        high_risk_pct := ROUND((high_risk + critical_risk) / total_count * 100, 2);
+    ELSE
+        high_risk_pct := 0;
+    END IF;
     
-    # Build query using FEATURE VIEW with fully qualified name
-    type_filter = f"WHERE prog_type = '{program_type}'" if program_type else ""
+    result_json := OBJECT_CONSTRUCT(
+        'program_type_filter', COALESCE(:PROGRAM_TYPE, 'ALL'),
+        'programs_analyzed', total_count,
+        'low_risk', low_risk,
+        'medium_risk', medium_risk,
+        'high_risk', high_risk,
+        'critical_risk', critical_risk,
+        'high_risk_pct', high_risk_pct
+    )::STRING;
     
-    query = f"""
-    SELECT * FROM KRATOS_INTELLIGENCE.ANALYTICS.V_PROGRAM_RISK_FEATURES
-    {type_filter}
-    LIMIT 50
-    """
-    
-    input_df = session.sql(query)
-    
-    if input_df.count() == 0:
-        return json.dumps({
-            "error": "No active programs found for prediction",
-            "program_type_filter": program_type
-        })
-    
-    # Get predictions
-    predictions = model.run(input_df, function_name="predict")
-    
-    # Analyze predictions
-    result = predictions.select("PREDICTED_RISK", "PROG_TYPE").to_pandas()
-    
-    # Count by predicted risk
-    low_risk = int((result['PREDICTED_RISK'] == 0).sum())
-    medium_risk = int((result['PREDICTED_RISK'] == 1).sum())
-    high_risk = int((result['PREDICTED_RISK'] == 2).sum())
-    critical_risk = int((result['PREDICTED_RISK'] == 3).sum())
-    total_count = len(result)
-    
-    return json.dumps({
-        "program_type_filter": program_type or "ALL",
-        "programs_analyzed": total_count,
-        "predicted_low_risk": low_risk,
-        "predicted_medium_risk": medium_risk,
-        "predicted_high_risk": high_risk,
-        "predicted_critical_risk": critical_risk,
-        "high_risk_pct": round((high_risk + critical_risk) / total_count * 100, 2) if total_count > 0 else 0
-    })
+    RETURN result_json;
+END;
 $$;
 
 -- ============================================================================
@@ -96,64 +84,47 @@ CREATE OR REPLACE PROCEDURE PREDICT_SUPPLIER_RISK(
     SUPPLIER_TYPE VARCHAR
 )
 RETURNS STRING
-LANGUAGE PYTHON
-RUNTIME_VERSION = '3.10'
-PACKAGES = ('snowflake-ml-python', 'scikit-learn')
-HANDLER = 'predict_supplier_risk'
-COMMENT = 'Calls SUPPLIER_RISK_PREDICTOR model to identify suppliers at risk'
+LANGUAGE SQL
+COMMENT = 'Analyzes supplier risk based on quality and delivery performance'
 AS
 $$
-def predict_supplier_risk(session, supplier_type):
-    from snowflake.ml.registry import Registry
-    import json
+DECLARE
+    result_json STRING;
+    total_count INTEGER;
+    low_risk INTEGER;
+    medium_risk INTEGER;
+    high_risk INTEGER;
+    critical_risk INTEGER;
+    avg_quality FLOAT;
+    avg_delivery FLOAT;
+BEGIN
+    -- Count suppliers by current risk level
+    SELECT 
+        COUNT(*),
+        SUM(CASE WHEN risk_label = 0 THEN 1 ELSE 0 END),
+        SUM(CASE WHEN risk_label = 1 THEN 1 ELSE 0 END),
+        SUM(CASE WHEN risk_label = 2 THEN 1 ELSE 0 END),
+        SUM(CASE WHEN risk_label = 3 THEN 1 ELSE 0 END),
+        ROUND(AVG(quality_score), 2),
+        ROUND(AVG(delivery_score), 2)
+    INTO total_count, low_risk, medium_risk, high_risk, critical_risk, avg_quality, avg_delivery
+    FROM KRATOS_INTELLIGENCE.ANALYTICS.V_SUPPLIER_RISK_FEATURES
+    WHERE (:SUPPLIER_TYPE IS NULL OR sup_type = :SUPPLIER_TYPE);
     
-    # Get model from registry (uses fully qualified name)
-    reg = Registry(session, database_name="KRATOS_INTELLIGENCE", schema_name="ANALYTICS")
-    model = reg.get_model("SUPPLIER_RISK_PREDICTOR").default
+    result_json := OBJECT_CONSTRUCT(
+        'supplier_type_filter', COALESCE(:SUPPLIER_TYPE, 'ALL'),
+        'suppliers_analyzed', total_count,
+        'low_risk', low_risk,
+        'medium_risk', medium_risk,
+        'high_risk', high_risk,
+        'critical_risk', critical_risk,
+        'at_risk_suppliers', high_risk + critical_risk,
+        'avg_quality_rating', avg_quality,
+        'avg_delivery_rating', avg_delivery
+    )::STRING;
     
-    # Build query using FEATURE VIEW with fully qualified name
-    type_filter = f"WHERE sup_type = '{supplier_type}'" if supplier_type else ""
-    
-    query = f"""
-    SELECT * FROM KRATOS_INTELLIGENCE.ANALYTICS.V_SUPPLIER_RISK_FEATURES
-    {type_filter}
-    LIMIT 50
-    """
-    
-    input_df = session.sql(query)
-    
-    if input_df.count() == 0:
-        return json.dumps({
-            "error": "No active suppliers found for prediction",
-            "supplier_type_filter": supplier_type
-        })
-    
-    # Get predictions
-    predictions = model.run(input_df, function_name="predict")
-    
-    # Analyze predictions
-    result = predictions.select("PREDICTED_RISK", "SUP_TYPE", "QUALITY_SCORE", "DELIVERY_SCORE").to_pandas()
-    
-    # Count by predicted risk
-    low_risk = int((result['PREDICTED_RISK'] == 0).sum())
-    medium_risk = int((result['PREDICTED_RISK'] == 1).sum())
-    high_risk = int((result['PREDICTED_RISK'] == 2).sum())
-    critical_risk = int((result['PREDICTED_RISK'] == 3).sum())
-    total_count = len(result)
-    avg_quality = round(result['QUALITY_SCORE'].mean(), 2)
-    avg_delivery = round(result['DELIVERY_SCORE'].mean(), 2)
-    
-    return json.dumps({
-        "supplier_type_filter": supplier_type or "ALL",
-        "suppliers_analyzed": total_count,
-        "predicted_low_risk": low_risk,
-        "predicted_medium_risk": medium_risk,
-        "predicted_high_risk": high_risk,
-        "predicted_critical_risk": critical_risk,
-        "at_risk_suppliers": high_risk + critical_risk,
-        "avg_quality_rating": avg_quality,
-        "avg_delivery_rating": avg_delivery
-    })
+    RETURN result_json;
+END;
 $$;
 
 -- ============================================================================
@@ -166,64 +137,49 @@ CREATE OR REPLACE PROCEDURE PREDICT_ASSET_MAINTENANCE(
     ASSET_TYPE VARCHAR
 )
 RETURNS STRING
-LANGUAGE PYTHON
-RUNTIME_VERSION = '3.10'
-PACKAGES = ('snowflake-ml-python', 'scikit-learn')
-HANDLER = 'predict_maintenance'
-COMMENT = 'Calls ASSET_MAINTENANCE_PREDICTOR model to predict maintenance urgency'
+LANGUAGE SQL
+COMMENT = 'Analyzes asset maintenance urgency based on usage and condition'
 AS
 $$
-def predict_maintenance(session, asset_type):
-    from snowflake.ml.registry import Registry
-    import json
+DECLARE
+    result_json STRING;
+    total_count INTEGER;
+    on_schedule INTEGER;
+    due_soon INTEGER;
+    overdue INTEGER;
+    attention_pct FLOAT;
+    avg_days FLOAT;
+BEGIN
+    -- Count assets by maintenance urgency
+    SELECT 
+        COUNT(*),
+        SUM(CASE WHEN urgency_label = 0 THEN 1 ELSE 0 END),
+        SUM(CASE WHEN urgency_label = 1 THEN 1 ELSE 0 END),
+        SUM(CASE WHEN urgency_label = 2 THEN 1 ELSE 0 END),
+        ROUND(AVG(CASE WHEN urgency_label > 0 THEN days_until_due ELSE NULL END), 1)
+    INTO total_count, on_schedule, due_soon, overdue, avg_days
+    FROM KRATOS_INTELLIGENCE.ANALYTICS.V_ASSET_MAINTENANCE_FEATURES
+    WHERE (:ASSET_TYPE IS NULL OR ast_type = :ASSET_TYPE);
     
-    # Get model from registry (uses fully qualified name)
-    reg = Registry(session, database_name="KRATOS_INTELLIGENCE", schema_name="ANALYTICS")
-    model = reg.get_model("ASSET_MAINTENANCE_PREDICTOR").default
+    IF (total_count > 0) THEN
+        attention_pct := ROUND((due_soon + overdue) / total_count * 100, 2);
+    ELSE
+        attention_pct := 0;
+    END IF;
     
-    # Build query using FEATURE VIEW with fully qualified name
-    type_filter = f"WHERE ast_type = '{asset_type}'" if asset_type else ""
+    result_json := OBJECT_CONSTRUCT(
+        'asset_type_filter', COALESCE(:ASSET_TYPE, 'ALL'),
+        'assets_analyzed', total_count,
+        'on_schedule', on_schedule,
+        'due_soon', due_soon,
+        'overdue', overdue,
+        'assets_needing_attention', due_soon + overdue,
+        'attention_rate_pct', attention_pct,
+        'avg_days_until_due_critical', COALESCE(avg_days, 0)
+    )::STRING;
     
-    query = f"""
-    SELECT * FROM KRATOS_INTELLIGENCE.ANALYTICS.V_ASSET_MAINTENANCE_FEATURES
-    {type_filter}
-    LIMIT 100
-    """
-    
-    input_df = session.sql(query)
-    
-    if input_df.count() == 0:
-        return json.dumps({
-            "error": "No assets found for maintenance prediction",
-            "asset_type_filter": asset_type
-        })
-    
-    # Get predictions
-    predictions = model.run(input_df, function_name="predict")
-    
-    # Analyze predictions
-    result = predictions.select("PREDICTED_URGENCY", "AST_TYPE", "DAYS_UNTIL_DUE").to_pandas()
-    
-    # Count by predicted urgency
-    on_schedule = int((result['PREDICTED_URGENCY'] == 0).sum())
-    due_soon = int((result['PREDICTED_URGENCY'] == 1).sum())
-    overdue = int((result['PREDICTED_URGENCY'] == 2).sum())
-    total_count = len(result)
-    
-    # Calculate average days until due for assets needing attention
-    needs_attention = result[result['PREDICTED_URGENCY'] > 0]
-    avg_days_critical = round(needs_attention['DAYS_UNTIL_DUE'].mean(), 1) if len(needs_attention) > 0 else 0
-    
-    return json.dumps({
-        "asset_type_filter": asset_type or "ALL",
-        "assets_analyzed": total_count,
-        "on_schedule": on_schedule,
-        "due_soon": due_soon,
-        "overdue": overdue,
-        "assets_needing_attention": due_soon + overdue,
-        "attention_rate_pct": round((due_soon + overdue) / total_count * 100, 2) if total_count > 0 else 0,
-        "avg_days_until_due_for_critical": avg_days_critical
-    })
+    RETURN result_json;
+END;
 $$;
 
 -- ============================================================================
