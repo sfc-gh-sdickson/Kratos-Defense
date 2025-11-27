@@ -1,21 +1,19 @@
 -- ============================================================================
--- Kratos Defense Intelligence Agent - ML Prediction Wrapper Functions
+-- Kratos Defense Intelligence Agent - ML Model Wrapper Procedures
 -- ============================================================================
--- Purpose: Create SQL procedures that query pre-computed ML predictions
---          These predictions are stored by the notebook after training models
--- 
--- CRITICAL: The notebook trains models AND stores predictions to:
---           - ANALYTICS.PROGRAM_RISK_PREDICTIONS
---           - ANALYTICS.SUPPLIER_RISK_PREDICTIONS  
---           - ANALYTICS.ASSET_MAINTENANCE_PREDICTIONS
+-- Purpose: SQL procedures that call registered ML models directly
 --
--- This avoids the Python stored procedure limitations with Model Registry
--- (USE, SHOW statements blocked in stored procs)
+-- When models are registered with log_model(), Snowflake creates SQL functions:
+--   PROGRAM_RISK_PREDICTOR!PREDICT(...)
+--   SUPPLIER_RISK_PREDICTOR!PREDICT(...)
+--   ASSET_MAINTENANCE_PREDICTOR!PREDICT(...)
+--
+-- These procedures wrap those functions for use by the Intelligence Agent.
 --
 -- WORKFLOW:
---   1. Run notebook to train models AND store predictions
---   2. Run this file to create procedures
---   3. Procedures query the prediction tables
+--   1. Run notebook to train and register models
+--   2. Run this file to create wrapper procedures
+--   3. Agent calls procedures which invoke ML models in real-time
 -- ============================================================================
 
 USE DATABASE KRATOS_INTELLIGENCE;
@@ -24,166 +22,115 @@ USE WAREHOUSE KRATOS_WH;
 
 -- ============================================================================
 -- Procedure 1: Program Risk Prediction Wrapper
--- Queries: ANALYTICS.PROGRAM_RISK_PREDICTIONS (created by notebook)
--- Uses: PREDICTED_RISK from ML model (not just calculated risk_label)
+-- Calls: PROGRAM_RISK_PREDICTOR!PREDICT(...) directly
+-- Features must match training: budget, spent, variance, schedule_variance,
+--   completion_pct, total_milestones, milestone_pct, budget_utilization, prog_type
 -- ============================================================================
 
 CREATE OR REPLACE PROCEDURE PREDICT_PROGRAM_RISK(
     PROGRAM_TYPE VARCHAR
 )
-RETURNS STRING
+RETURNS TABLE()
 LANGUAGE SQL
-COMMENT = 'Returns ML model predictions for program risk based on trained Random Forest model'
+COMMENT = 'Calls PROGRAM_RISK_PREDICTOR ML model in real-time to predict program risk'
 AS
 $$
 DECLARE
-    result_json STRING;
-    total_count INTEGER;
-    low_risk INTEGER;
-    medium_risk INTEGER;
-    high_risk INTEGER;
-    critical_risk INTEGER;
-    high_risk_pct FLOAT;
+    res RESULTSET;
 BEGIN
-    -- Count programs by ML PREDICTED risk level
-    SELECT 
-        COUNT(*),
-        SUM(CASE WHEN PREDICTED_RISK = 0 THEN 1 ELSE 0 END),
-        SUM(CASE WHEN PREDICTED_RISK = 1 THEN 1 ELSE 0 END),
-        SUM(CASE WHEN PREDICTED_RISK = 2 THEN 1 ELSE 0 END),
-        SUM(CASE WHEN PREDICTED_RISK = 3 THEN 1 ELSE 0 END)
-    INTO total_count, low_risk, medium_risk, high_risk, critical_risk
-    FROM KRATOS_INTELLIGENCE.ANALYTICS.PROGRAM_RISK_PREDICTIONS
-    WHERE (:PROGRAM_TYPE IS NULL OR PROG_TYPE = :PROGRAM_TYPE);
-    
-    IF (total_count > 0) THEN
-        high_risk_pct := ROUND((high_risk + critical_risk) / total_count * 100, 2);
-    ELSE
-        high_risk_pct := 0;
-    END IF;
-    
-    result_json := OBJECT_CONSTRUCT(
-        'prediction_source', 'PROGRAM_RISK_PREDICTOR ML Model',
-        'program_type_filter', COALESCE(:PROGRAM_TYPE, 'ALL'),
-        'programs_analyzed', total_count,
-        'predicted_low_risk', low_risk,
-        'predicted_medium_risk', medium_risk,
-        'predicted_high_risk', high_risk,
-        'predicted_critical_risk', critical_risk,
-        'high_risk_pct', high_risk_pct
-    )::STRING;
-    
-    RETURN result_json;
+    res := (
+        SELECT 
+            program_id,
+            prog_type,
+            budget,
+            spent,
+            completion_pct,
+            PROGRAM_RISK_PREDICTOR!PREDICT(
+                budget, spent, variance, schedule_variance,
+                completion_pct, total_milestones, milestone_pct, 
+                budget_utilization, prog_type
+            ) AS predicted_risk
+        FROM KRATOS_INTELLIGENCE.ANALYTICS.V_PROGRAM_RISK_FEATURES
+        WHERE (:PROGRAM_TYPE IS NULL OR prog_type = :PROGRAM_TYPE)
+        LIMIT 100
+    );
+    RETURN TABLE(res);
 END;
 $$;
 
 -- ============================================================================
 -- Procedure 2: Supplier Risk Prediction Wrapper
--- Queries: ANALYTICS.SUPPLIER_RISK_PREDICTIONS (created by notebook)
--- Uses: PREDICTED_RISK from ML model
+-- Calls: SUPPLIER_RISK_PREDICTOR!PREDICT(...) directly
+-- Features must match training: quality_score, delivery_score, overall_rating,
+--   order_count, total_spend, avg_order_value, payment_terms, sup_type
 -- ============================================================================
 
 CREATE OR REPLACE PROCEDURE PREDICT_SUPPLIER_RISK(
     SUPPLIER_TYPE VARCHAR
 )
-RETURNS STRING
+RETURNS TABLE()
 LANGUAGE SQL
-COMMENT = 'Returns ML model predictions for supplier risk based on trained Random Forest model'
+COMMENT = 'Calls SUPPLIER_RISK_PREDICTOR ML model in real-time to predict supplier risk'
 AS
 $$
 DECLARE
-    result_json STRING;
-    total_count INTEGER;
-    low_risk INTEGER;
-    medium_risk INTEGER;
-    high_risk INTEGER;
-    critical_risk INTEGER;
-    avg_quality FLOAT;
-    avg_delivery FLOAT;
+    res RESULTSET;
 BEGIN
-    -- Count suppliers by ML PREDICTED risk level
-    SELECT 
-        COUNT(*),
-        SUM(CASE WHEN PREDICTED_RISK = 0 THEN 1 ELSE 0 END),
-        SUM(CASE WHEN PREDICTED_RISK = 1 THEN 1 ELSE 0 END),
-        SUM(CASE WHEN PREDICTED_RISK = 2 THEN 1 ELSE 0 END),
-        SUM(CASE WHEN PREDICTED_RISK = 3 THEN 1 ELSE 0 END),
-        ROUND(AVG(QUALITY_SCORE), 2),
-        ROUND(AVG(DELIVERY_SCORE), 2)
-    INTO total_count, low_risk, medium_risk, high_risk, critical_risk, avg_quality, avg_delivery
-    FROM KRATOS_INTELLIGENCE.ANALYTICS.SUPPLIER_RISK_PREDICTIONS
-    WHERE (:SUPPLIER_TYPE IS NULL OR SUP_TYPE = :SUPPLIER_TYPE);
-    
-    result_json := OBJECT_CONSTRUCT(
-        'prediction_source', 'SUPPLIER_RISK_PREDICTOR ML Model',
-        'supplier_type_filter', COALESCE(:SUPPLIER_TYPE, 'ALL'),
-        'suppliers_analyzed', total_count,
-        'predicted_low_risk', low_risk,
-        'predicted_medium_risk', medium_risk,
-        'predicted_high_risk', high_risk,
-        'predicted_critical_risk', critical_risk,
-        'at_risk_suppliers', high_risk + critical_risk,
-        'avg_quality_rating', avg_quality,
-        'avg_delivery_rating', avg_delivery
-    )::STRING;
-    
-    RETURN result_json;
+    res := (
+        SELECT 
+            supplier_id,
+            sup_type,
+            quality_score,
+            delivery_score,
+            total_spend,
+            SUPPLIER_RISK_PREDICTOR!PREDICT(
+                quality_score, delivery_score, overall_rating,
+                order_count, total_spend, avg_order_value,
+                payment_terms, sup_type
+            ) AS predicted_risk
+        FROM KRATOS_INTELLIGENCE.ANALYTICS.V_SUPPLIER_RISK_FEATURES
+        WHERE (:SUPPLIER_TYPE IS NULL OR sup_type = :SUPPLIER_TYPE)
+        LIMIT 100
+    );
+    RETURN TABLE(res);
 END;
 $$;
 
 -- ============================================================================
 -- Procedure 3: Asset Maintenance Prediction Wrapper
--- Queries: ANALYTICS.ASSET_MAINTENANCE_PREDICTIONS (created by notebook)
--- Uses: PREDICTED_URGENCY from ML model
+-- Calls: ASSET_MAINTENANCE_PREDICTOR!PREDICT(...) directly
+-- Features must match training: flight_hours, maint_interval, utilization_pct,
+--   days_since_maintenance, days_until_due, condition_score, is_ready, ast_type
 -- ============================================================================
 
 CREATE OR REPLACE PROCEDURE PREDICT_ASSET_MAINTENANCE(
     ASSET_TYPE VARCHAR
 )
-RETURNS STRING
+RETURNS TABLE()
 LANGUAGE SQL
-COMMENT = 'Returns ML model predictions for asset maintenance urgency based on trained Random Forest model'
+COMMENT = 'Calls ASSET_MAINTENANCE_PREDICTOR ML model in real-time to predict maintenance urgency'
 AS
 $$
 DECLARE
-    result_json STRING;
-    total_count INTEGER;
-    on_schedule INTEGER;
-    due_soon INTEGER;
-    overdue INTEGER;
-    attention_pct FLOAT;
-    avg_days FLOAT;
+    res RESULTSET;
 BEGIN
-    -- Count assets by ML PREDICTED urgency level
-    SELECT 
-        COUNT(*),
-        SUM(CASE WHEN PREDICTED_URGENCY = 0 THEN 1 ELSE 0 END),
-        SUM(CASE WHEN PREDICTED_URGENCY = 1 THEN 1 ELSE 0 END),
-        SUM(CASE WHEN PREDICTED_URGENCY = 2 THEN 1 ELSE 0 END),
-        ROUND(AVG(CASE WHEN PREDICTED_URGENCY > 0 THEN DAYS_UNTIL_DUE ELSE NULL END), 1)
-    INTO total_count, on_schedule, due_soon, overdue, avg_days
-    FROM KRATOS_INTELLIGENCE.ANALYTICS.ASSET_MAINTENANCE_PREDICTIONS
-    WHERE (:ASSET_TYPE IS NULL OR AST_TYPE = :ASSET_TYPE);
-    
-    IF (total_count > 0) THEN
-        attention_pct := ROUND((due_soon + overdue) / total_count * 100, 2);
-    ELSE
-        attention_pct := 0;
-    END IF;
-    
-    result_json := OBJECT_CONSTRUCT(
-        'prediction_source', 'ASSET_MAINTENANCE_PREDICTOR ML Model',
-        'asset_type_filter', COALESCE(:ASSET_TYPE, 'ALL'),
-        'assets_analyzed', total_count,
-        'predicted_on_schedule', on_schedule,
-        'predicted_due_soon', due_soon,
-        'predicted_overdue', overdue,
-        'assets_needing_attention', due_soon + overdue,
-        'attention_rate_pct', attention_pct,
-        'avg_days_until_due_critical', COALESCE(avg_days, 0)
-    )::STRING;
-    
-    RETURN result_json;
+    res := (
+        SELECT 
+            asset_id,
+            ast_type,
+            flight_hours,
+            condition_score,
+            days_until_due,
+            ASSET_MAINTENANCE_PREDICTOR!PREDICT(
+                flight_hours, maint_interval, utilization_pct,
+                days_since_maintenance, days_until_due, 
+                condition_score, is_ready, ast_type
+            ) AS predicted_urgency
+        FROM KRATOS_INTELLIGENCE.ANALYTICS.V_ASSET_MAINTENANCE_FEATURES
+        WHERE (:ASSET_TYPE IS NULL OR ast_type = :ASSET_TYPE)
+        LIMIT 100
+    );
+    RETURN TABLE(res);
 END;
 $$;
 
@@ -194,20 +141,21 @@ $$;
 SELECT 'ML model wrapper functions created successfully' AS status;
 
 -- ============================================================================
--- Test Calls (uncomment after models are registered via notebook)
+-- Test Calls (run after models are registered via notebook)
+-- These procedures return TABLE results with real-time ML predictions
 -- ============================================================================
 
--- Test PREDICT_PROGRAM_RISK
+-- Test PREDICT_PROGRAM_RISK - returns table of programs with predicted risk
 CALL PREDICT_PROGRAM_RISK('DEVELOPMENT');
-CALL PREDICT_PROGRAM_RISK(NULL);
+CALL PREDICT_PROGRAM_RISK(NULL);  -- All program types
 
--- Test PREDICT_SUPPLIER_RISK
+-- Test PREDICT_SUPPLIER_RISK - returns table of suppliers with predicted risk
 CALL PREDICT_SUPPLIER_RISK('TIER_1');
-CALL PREDICT_SUPPLIER_RISK(NULL);
+CALL PREDICT_SUPPLIER_RISK(NULL);  -- All supplier types
 
--- Test PREDICT_ASSET_MAINTENANCE
+-- Test PREDICT_ASSET_MAINTENANCE - returns table of assets with predicted urgency
 CALL PREDICT_ASSET_MAINTENANCE('AIRCRAFT');
-CALL PREDICT_ASSET_MAINTENANCE(NULL);
+CALL PREDICT_ASSET_MAINTENANCE(NULL);  -- All asset types
 
-SELECT 'Test calls completed - verify results above' AS instruction;
+SELECT 'Test calls completed - each procedure returns a table with ML predictions' AS instruction;
 
