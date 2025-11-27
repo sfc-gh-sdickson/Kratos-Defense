@@ -337,6 +337,7 @@ FROM RAW.DIVISIONS d;
 -- Used by: notebooks/kratos_ml_models.ipynb (training)
 --          sql/ml/07_create_model_wrapper_functions.sql (prediction)
 -- Model: PROGRAM_RISK_PREDICTOR
+-- NOTE: Only includes columns used for ML training - no string columns except prog_type
 -- ============================================================================
 CREATE OR REPLACE VIEW V_PROGRAM_RISK_FEATURES AS
 SELECT
@@ -350,20 +351,21 @@ SELECT
     COALESCE((p.milestones_completed::FLOAT / NULLIF(p.milestone_count, 0) * 100), 0)::FLOAT AS milestone_pct,
     COALESCE((p.spent_amount::FLOAT / NULLIF(p.budget_amount, 0) * 100), 0)::FLOAT AS budget_utilization,
     p.program_type AS prog_type,
-    p.program_status,
     CASE p.risk_level
         WHEN 'LOW' THEN 0
         WHEN 'MEDIUM' THEN 1
         WHEN 'HIGH' THEN 2
         ELSE 3
     END AS risk_label
-FROM RAW.PROGRAMS p;
+FROM RAW.PROGRAMS p
+WHERE p.program_status IN ('ACTIVE', 'COMPLETED', 'ON_HOLD');
 
 -- ============================================================================
 -- View 12: Supplier Risk ML Features
 -- Used by: notebooks/kratos_ml_models.ipynb (training)
 --          sql/ml/07_create_model_wrapper_functions.sql (prediction)
 -- Model: SUPPLIER_RISK_PREDICTOR
+-- NOTE: Only includes columns used for ML training - no string columns except sup_type
 -- ============================================================================
 CREATE OR REPLACE VIEW V_SUPPLIER_RISK_FEATURES AS
 SELECT
@@ -376,20 +378,21 @@ SELECT
     COALESCE((s.total_spend::FLOAT / NULLIF(s.total_orders, 0)), 0)::FLOAT AS avg_order_value,
     s.payment_terms::FLOAT AS payment_terms,
     s.supplier_type AS sup_type,
-    s.supplier_status,
     CASE s.risk_rating
         WHEN 'LOW' THEN 0
         WHEN 'MEDIUM' THEN 1
         WHEN 'HIGH' THEN 2
         ELSE 3
     END AS risk_label
-FROM RAW.SUPPLIERS s;
+FROM RAW.SUPPLIERS s
+WHERE s.supplier_status IN ('ACTIVE', 'PREFERRED', 'PROBATION');
 
 -- ============================================================================
 -- View 13: Asset Maintenance ML Features
 -- Used by: notebooks/kratos_ml_models.ipynb (training)
 --          sql/ml/07_create_model_wrapper_functions.sql (prediction)
 -- Model: ASSET_MAINTENANCE_PREDICTOR
+-- NOTE: Only includes columns used for ML training - no string columns except ast_type
 -- ============================================================================
 CREATE OR REPLACE VIEW V_ASSET_MAINTENANCE_FEATURES AS
 SELECT
@@ -407,14 +410,15 @@ SELECT
     END::FLOAT AS condition_score,
     CASE WHEN a.mission_ready = TRUE THEN 1 ELSE 0 END::FLOAT AS is_ready,
     a.asset_type AS ast_type,
-    a.asset_status,
-    a.next_maintenance_due,
     CASE 
         WHEN DATEDIFF('day', CURRENT_DATE(), a.next_maintenance_due) < 0 THEN 2
         WHEN DATEDIFF('day', CURRENT_DATE(), a.next_maintenance_due) <= 14 THEN 1
         ELSE 0
     END AS urgency_label
-FROM RAW.ASSETS a;
+FROM RAW.ASSETS a
+WHERE a.asset_status IN ('OPERATIONAL', 'MAINTENANCE', 'STANDBY')
+  AND a.next_maintenance_due IS NOT NULL
+  AND a.last_maintenance_date IS NOT NULL;
 
 -- ============================================================================
 -- Display confirmation

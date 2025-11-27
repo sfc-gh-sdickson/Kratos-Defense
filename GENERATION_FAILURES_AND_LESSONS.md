@@ -994,6 +994,51 @@ This solution makes feature name mismatches **structurally impossible**.
 
 ---
 
+## Failure Category 8: Including Filter Columns in ML Feature Views
+
+### 8.1 String Columns Included for Filtering Break Model Training
+
+**What I did wrong:**
+```sql
+-- WRONG: Included program_status in view for filtering
+CREATE VIEW V_PROGRAM_RISK_FEATURES AS
+SELECT
+    ...numeric features...,
+    p.program_status,  -- STRING COLUMN - CAN'T BE USED AS FEATURE!
+    ...
+FROM RAW.PROGRAMS p;
+```
+
+Then notebook did:
+```python
+SELECT * FROM V_PROGRAM_RISK_FEATURES WHERE program_status = 'ACTIVE'
+```
+
+**Error received:**
+```
+ValueError: could not convert string to float: 'COMPLETED'
+```
+
+**What I should have done:**
+```sql
+-- CORRECT: Put filter in the view's WHERE clause, not in SELECT
+CREATE VIEW V_PROGRAM_RISK_FEATURES AS
+SELECT
+    ...only numeric features and label...
+FROM RAW.PROGRAMS p
+WHERE p.program_status IN ('ACTIVE', 'COMPLETED', 'ON_HOLD');  -- Filter here!
+```
+
+**Rule:** ML feature views should:
+1. Include ONLY columns that are numeric or will be used as labels
+2. Put all filters in the view's WHERE clause
+3. Allow `SELECT *` to return only trainable columns
+4. Never include string columns that aren't encoded as numbers
+
+**Files affected:** `sql/views/04_create_views.sql` - All 3 ML feature views
+
+---
+
 ---
 
 ## Failure Category 6: Numeric Precision Overflow

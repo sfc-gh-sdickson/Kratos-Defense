@@ -46,14 +46,12 @@ def predict_program_risk(session, program_type):
     model = reg.get_model("PROGRAM_RISK_PREDICTOR").default
     
     # Build query using FEATURE VIEW - NEVER define features inline!
-    type_filter = f"AND prog_type = '{program_type}'" if program_type else ""
+    # The view already has filters built in, just add optional type filter
+    type_filter = f"WHERE prog_type = '{program_type}'" if program_type else ""
     
-    # Use V_PROGRAM_RISK_FEATURES view - same features as training
     query = f"""
-    SELECT *
-    FROM ANALYTICS.V_PROGRAM_RISK_FEATURES
-    WHERE program_status = 'ACTIVE'
-      {type_filter}
+    SELECT * FROM ANALYTICS.V_PROGRAM_RISK_FEATURES
+    {type_filter}
     LIMIT 50
     """
     
@@ -115,14 +113,12 @@ def predict_supplier_risk(session, supplier_type):
     model = reg.get_model("SUPPLIER_RISK_PREDICTOR").default
     
     # Build query using FEATURE VIEW - NEVER define features inline!
-    type_filter = f"AND sup_type = '{supplier_type}'" if supplier_type else ""
+    # The view already has filters built in, just add optional type filter
+    type_filter = f"WHERE sup_type = '{supplier_type}'" if supplier_type else ""
     
-    # Use V_SUPPLIER_RISK_FEATURES view - same features as training
     query = f"""
-    SELECT *
-    FROM ANALYTICS.V_SUPPLIER_RISK_FEATURES
-    WHERE supplier_status IN ('ACTIVE', 'PREFERRED', 'PROBATION')
-      {type_filter}
+    SELECT * FROM ANALYTICS.V_SUPPLIER_RISK_FEATURES
+    {type_filter}
     LIMIT 50
     """
     
@@ -188,15 +184,12 @@ def predict_maintenance(session, asset_type):
     model = reg.get_model("ASSET_MAINTENANCE_PREDICTOR").default
     
     # Build query using FEATURE VIEW - NEVER define features inline!
-    type_filter = f"AND ast_type = '{asset_type}'" if asset_type else ""
+    # The view already has filters built in, just add optional type filter
+    type_filter = f"WHERE ast_type = '{asset_type}'" if asset_type else ""
     
-    # Use V_ASSET_MAINTENANCE_FEATURES view - same features as training
     query = f"""
-    SELECT *
-    FROM ANALYTICS.V_ASSET_MAINTENANCE_FEATURES
-    WHERE asset_status IN ('OPERATIONAL', 'MAINTENANCE', 'STANDBY')
-      AND next_maintenance_due IS NOT NULL
-      {type_filter}
+    SELECT * FROM ANALYTICS.V_ASSET_MAINTENANCE_FEATURES
+    {type_filter}
     LIMIT 100
     """
     
