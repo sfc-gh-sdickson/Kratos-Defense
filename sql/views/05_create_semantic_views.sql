@@ -111,7 +111,7 @@ CREATE OR REPLACE SEMANTIC VIEW SV_PROGRAM_CONTRACT_INTELLIGENCE
     milestones.milestone_status AS milestone_status
       WITH SYNONYMS ('deliverable status', 'milestone state')
       COMMENT = 'Status: COMPLETED, PENDING, IN_PROGRESS, AT_RISK',
-    milestones.is_critical AS is_critical_milestone
+    milestones.is_critical_milestone AS is_critical
       WITH SYNONYMS ('critical path', 'key milestone')
       COMMENT = 'Whether milestone is on critical path'
   )
