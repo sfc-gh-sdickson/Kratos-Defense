@@ -1039,6 +1039,50 @@ WHERE p.program_status IN ('ACTIVE', 'COMPLETED', 'ON_HOLD');  -- Filter here!
 
 ---
 
+## Failure Category 9: Hardcoding Model Version Names
+
+### 9.1 version_name="V1" Causes Conflicts on Re-run
+
+**What I did wrong:**
+```python
+# WRONG: Hardcoded version name
+reg.log_model(
+    model=pipeline,
+    model_name="MODEL_NAME",
+    version_name="V1",  # WILL FAIL IF MODEL ALREADY EXISTS!
+    ...
+)
+```
+
+**Error received:**
+```
+ValueError: Model SUPPLIER_RISK_PREDICTOR version V1 already existed. 
+To auto-generate `version_name`, skip that argument.
+```
+
+**What I should have done:**
+```python
+# CORRECT: Let Snowflake auto-generate version name
+reg.log_model(
+    model=pipeline,
+    model_name="MODEL_NAME",
+    # NO version_name - auto-generated
+    ...
+)
+```
+
+**Why this matters:**
+- User has to re-run notebook multiple times due to my other errors
+- Each re-run tries to create "V1" again
+- Fails because V1 already exists
+- Adding insult to injury
+
+**Rule:** NEVER hardcode `version_name` in `reg.log_model()`. Let Snowflake auto-generate it.
+
+**Files affected:** `notebooks/kratos_ml_models.ipynb` - All 3 model registrations
+
+---
+
 ---
 
 ## Failure Category 6: Numeric Precision Overflow
