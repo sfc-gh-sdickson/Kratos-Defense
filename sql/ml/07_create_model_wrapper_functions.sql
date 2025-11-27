@@ -188,17 +188,26 @@ AS
 $$
 def predict_maintenance(session, asset_id_input):
     import json
-    from datetime import datetime, date
     
+    # Use SQL to calculate everything including days_until
     query = f"""
     SELECT
         asset_id,
         asset_name,
-        COALESCE(total_flight_hours, 0) AS flight_hours,
-        COALESCE(maintenance_interval_hours, 250) AS maint_interval,
-        next_maintenance_due,
-        last_maintenance_date,
-        asset_status
+        COALESCE(total_flight_hours, 0)::FLOAT AS flight_hours,
+        COALESCE(maintenance_interval_hours, 250)::INT AS maint_interval,
+        TO_VARCHAR(next_maintenance_due, 'YYYY-MM-DD') AS next_due_str,
+        TO_VARCHAR(last_maintenance_date, 'YYYY-MM-DD') AS last_maint_str,
+        asset_status,
+        DATEDIFF('day', CURRENT_DATE(), COALESCE(next_maintenance_due, DATEADD('day', 30, CURRENT_DATE()))) AS days_until,
+        CASE 
+            WHEN next_maintenance_due IS NULL THEN 'UNKNOWN - No maintenance scheduled'
+            WHEN next_maintenance_due < CURRENT_DATE() THEN 'OVERDUE - Maintenance past due'
+            WHEN next_maintenance_due < DATEADD('day', 7, CURRENT_DATE()) THEN 'CRITICAL - Due within 7 days'
+            WHEN next_maintenance_due < DATEADD('day', 14, CURRENT_DATE()) THEN 'HIGH - Due within 14 days'
+            WHEN next_maintenance_due < DATEADD('day', 30, CURRENT_DATE()) THEN 'MEDIUM - Due within 30 days'
+            ELSE 'LOW - Maintenance not imminent'
+        END AS urgency
     FROM RAW.ASSETS
     WHERE asset_id = '{asset_id_input}'
     """
@@ -206,49 +215,20 @@ def predict_maintenance(session, asset_id_input):
     result = session.sql(query).collect()
     
     if len(result) == 0:
-        return json.dumps({
-            "error": f"Asset {asset_id_input} not found",
-            "asset_id": asset_id_input
-        })
+        return json.dumps({"error": f"Asset {asset_id_input} not found"})
     
     row = result[0]
-    asset_id = row['ASSET_ID']
-    asset_name = row['ASSET_NAME']
-    flight_hours = float(row['FLIGHT_HOURS'])
-    maint_interval = int(row['MAINT_INTERVAL'])
-    next_due = row['NEXT_MAINTENANCE_DUE']
-    last_maint = row['LAST_MAINTENANCE_DATE']
-    status = row['ASSET_STATUS']
-    
-    today = date.today()
-    
-    if next_due is None:
-        days_until = 30
-        urgency = "UNKNOWN - No maintenance scheduled"
-        next_due_str = "Not scheduled"
-    else:
-        days_until = (next_due - today).days
-        next_due_str = str(next_due)
-        if days_until < 0:
-            urgency = "OVERDUE - Maintenance past due"
-        elif days_until < 7:
-            urgency = "CRITICAL - Due within 7 days"
-        elif days_until < 14:
-            urgency = "HIGH - Due within 14 days"
-        elif days_until < 30:
-            urgency = "MEDIUM - Due within 30 days"
-        else:
-            urgency = "LOW - Maintenance not imminent"
     
     return json.dumps({
-        "asset_id": asset_id,
-        "asset_name": asset_name,
-        "current_flight_hours": flight_hours,
-        "maintenance_interval_hours": maint_interval,
-        "next_maintenance_due": next_due_str,
-        "days_until_maintenance": days_until,
-        "maintenance_urgency": urgency,
-        "asset_status": status
+        "asset_id": str(row['ASSET_ID']),
+        "asset_name": str(row['ASSET_NAME']),
+        "current_flight_hours": float(row['FLIGHT_HOURS']),
+        "maintenance_interval_hours": int(row['MAINT_INTERVAL']),
+        "next_maintenance_due": str(row['NEXT_DUE_STR']) if row['NEXT_DUE_STR'] else "Not scheduled",
+        "last_maintenance_date": str(row['LAST_MAINT_STR']) if row['LAST_MAINT_STR'] else "None",
+        "days_until_maintenance": int(row['DAYS_UNTIL']),
+        "maintenance_urgency": str(row['URGENCY']),
+        "asset_status": str(row['ASSET_STATUS'])
     })
 $$;
 
