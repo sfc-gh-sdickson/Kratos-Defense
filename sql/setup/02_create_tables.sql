@@ -1,9 +1,7 @@
 -- ============================================================================
 -- Kratos Defense Intelligence Agent - Table Definitions
 -- ============================================================================
--- Purpose: Create all necessary tables for defense contractor business model
--- All columns designed for defense industry operations
--- Syntax: Verified against Snowflake SQL Reference
+-- MASTER COLUMN REFERENCE - All views MUST only reference these exact columns
 -- ============================================================================
 
 USE DATABASE KRATOS_INTELLIGENCE;
@@ -11,7 +9,11 @@ USE SCHEMA RAW;
 USE WAREHOUSE KRATOS_WH;
 
 -- ============================================================================
--- DIVISIONS TABLE - Business Units
+-- TABLE: DIVISIONS
+-- Columns: division_id, division_code, division_name, division_category,
+--          description, headquarters_location, employee_count, annual_revenue,
+--          primary_customer, security_clearance_level, is_active, established_date,
+--          created_at, updated_at
 -- ============================================================================
 CREATE OR REPLACE TABLE DIVISIONS (
     division_id VARCHAR(20) PRIMARY KEY,
@@ -31,7 +33,12 @@ CREATE OR REPLACE TABLE DIVISIONS (
 );
 
 -- ============================================================================
--- CUSTOMERS TABLE - DoD and Allied Customers
+-- TABLE: CUSTOMERS
+-- Columns: customer_id, customer_code, customer_name, customer_type,
+--          customer_category, agency_branch, country, primary_contact_name,
+--          primary_contact_email, primary_contact_phone, billing_address,
+--          contract_vehicle, security_clearance_required, relationship_status,
+--          first_contract_date, total_contract_value, created_at, updated_at
 -- ============================================================================
 CREATE OR REPLACE TABLE CUSTOMERS (
     customer_id VARCHAR(30) PRIMARY KEY,
@@ -55,7 +62,13 @@ CREATE OR REPLACE TABLE CUSTOMERS (
 );
 
 -- ============================================================================
--- PROGRAMS TABLE - Defense Programs
+-- TABLE: PROGRAMS
+-- Columns: program_id, division_id, program_code, program_name, program_type,
+--          program_category, description, customer_id, prime_contractor,
+--          contract_type, program_status, program_phase, security_classification,
+--          start_date, planned_end_date, actual_end_date, total_contract_value,
+--          funded_value, costs_incurred, revenue_recognized, margin_percentage,
+--          program_manager, technical_lead, risk_level, created_at, updated_at
 -- ============================================================================
 CREATE OR REPLACE TABLE PROGRAMS (
     program_id VARCHAR(30) PRIMARY KEY,
@@ -89,7 +102,12 @@ CREATE OR REPLACE TABLE PROGRAMS (
 );
 
 -- ============================================================================
--- CONTRACTS TABLE - Contract Details
+-- TABLE: CONTRACTS
+-- Columns: contract_id, program_id, customer_id, contract_number, contract_name,
+--          contract_type, contract_vehicle, award_date, start_date, end_date,
+--          period_of_performance_months, base_value, option_value, total_value,
+--          funded_amount, contract_status, modification_count, security_classification,
+--          contracting_officer, contracting_officer_email, created_at, updated_at
 -- ============================================================================
 CREATE OR REPLACE TABLE CONTRACTS (
     contract_id VARCHAR(30) PRIMARY KEY,
@@ -119,7 +137,11 @@ CREATE OR REPLACE TABLE CONTRACTS (
 );
 
 -- ============================================================================
--- MILESTONES TABLE - Program Milestones
+-- TABLE: MILESTONES
+-- Columns: milestone_id, program_id, contract_id, milestone_code, milestone_name,
+--          milestone_type, description, planned_date, actual_date, milestone_status,
+--          deliverable_required, payment_milestone, payment_amount,
+--          completion_percentage, dependencies, notes, created_at, updated_at
 -- ============================================================================
 CREATE OR REPLACE TABLE MILESTONES (
     milestone_id VARCHAR(30) PRIMARY KEY,
@@ -145,7 +167,14 @@ CREATE OR REPLACE TABLE MILESTONES (
 );
 
 -- ============================================================================
--- ASSETS TABLE - Unmanned Systems, Equipment, Satellites
+-- TABLE: ASSETS
+-- Columns: asset_id, division_id, program_id, asset_serial_number, asset_name,
+--          asset_type, asset_category, asset_model, manufacturer, manufacture_date,
+--          acquisition_date, acquisition_cost, current_value, asset_status,
+--          operational_status, location, assigned_customer_id, total_flight_hours,
+--          total_missions, last_maintenance_date, next_maintenance_due,
+--          maintenance_interval_hours, software_version, firmware_version,
+--          security_classification, created_at, updated_at
 -- ============================================================================
 CREATE OR REPLACE TABLE ASSETS (
     asset_id VARCHAR(30) PRIMARY KEY,
@@ -181,7 +210,12 @@ CREATE OR REPLACE TABLE ASSETS (
 );
 
 -- ============================================================================
--- ASSET_OPERATIONS TABLE - Flight Hours, Missions, Usage
+-- TABLE: ASSET_OPERATIONS
+-- Columns: operation_id, asset_id, program_id, operation_date, operation_type,
+--          mission_type, mission_name, location, flight_hours, cycles,
+--          fuel_consumed, altitude_max, speed_max, distance_traveled,
+--          operation_status, pilot_operator, weather_conditions, mission_success,
+--          anomalies_detected, notes, created_at
 -- ============================================================================
 CREATE OR REPLACE TABLE ASSET_OPERATIONS (
     operation_id VARCHAR(30) PRIMARY KEY,
@@ -210,7 +244,13 @@ CREATE OR REPLACE TABLE ASSET_OPERATIONS (
 );
 
 -- ============================================================================
--- MAINTENANCE_RECORDS TABLE - Service and Repair History
+-- TABLE: MAINTENANCE_RECORDS
+-- Columns: maintenance_id, asset_id, maintenance_date, maintenance_type,
+--          maintenance_category, work_order_number, description, parts_replaced,
+--          labor_hours, parts_cost, labor_cost, total_cost, technician_name,
+--          technician_certification, maintenance_status, flight_hours_at_maintenance,
+--          next_maintenance_hours, quality_inspection_passed, root_cause,
+--          corrective_action, created_at, updated_at
 -- ============================================================================
 CREATE OR REPLACE TABLE MAINTENANCE_RECORDS (
     maintenance_id VARCHAR(30) PRIMARY KEY,
@@ -239,7 +279,12 @@ CREATE OR REPLACE TABLE MAINTENANCE_RECORDS (
 );
 
 -- ============================================================================
--- PARTS_INVENTORY TABLE - Spare Parts and Materials
+-- TABLE: PARTS_INVENTORY
+-- Columns: part_id, division_id, part_number, part_name, part_category, part_type,
+--          manufacturer, unit_cost, quantity_on_hand, quantity_reserved,
+--          quantity_available, reorder_point, reorder_quantity, lead_time_days,
+--          storage_location, shelf_life_days, is_critical, is_hazardous,
+--          export_controlled, last_receipt_date, last_issue_date, created_at, updated_at
 -- ============================================================================
 CREATE OR REPLACE TABLE PARTS_INVENTORY (
     part_id VARCHAR(30) PRIMARY KEY,
@@ -269,7 +314,12 @@ CREATE OR REPLACE TABLE PARTS_INVENTORY (
 );
 
 -- ============================================================================
--- MANUFACTURING_ORDERS TABLE - Production Tracking
+-- TABLE: MANUFACTURING_ORDERS
+-- Columns: order_id, division_id, program_id, contract_id, order_number,
+--          order_type, product_name, product_type, quantity_ordered,
+--          quantity_completed, quantity_scrapped, unit_cost, total_cost,
+--          order_date, required_date, start_date, completion_date, order_status,
+--          priority, production_line, shift, notes, created_at, updated_at
 -- ============================================================================
 CREATE OR REPLACE TABLE MANUFACTURING_ORDERS (
     order_id VARCHAR(30) PRIMARY KEY,
@@ -302,7 +352,12 @@ CREATE OR REPLACE TABLE MANUFACTURING_ORDERS (
 );
 
 -- ============================================================================
--- QUALITY_INSPECTIONS TABLE - QC Results
+-- TABLE: QUALITY_INSPECTIONS
+-- Columns: inspection_id, order_id, asset_id, inspection_date, inspection_type,
+--          inspection_category, inspector_name, inspector_certification,
+--          inspection_criteria, inspection_result, defects_found,
+--          defect_description, corrective_action_required, corrective_action_taken,
+--          retest_required, retest_date, retest_result, quality_score, notes, created_at
 -- ============================================================================
 CREATE OR REPLACE TABLE QUALITY_INSPECTIONS (
     inspection_id VARCHAR(30) PRIMARY KEY,
@@ -330,7 +385,12 @@ CREATE OR REPLACE TABLE QUALITY_INSPECTIONS (
 );
 
 -- ============================================================================
--- ENGINEERING_PROJECTS TABLE - R&D and Development
+-- TABLE: ENGINEERING_PROJECTS
+-- Columns: project_id, division_id, program_id, project_code, project_name,
+--          project_type, project_category, description, project_status,
+--          project_phase, technology_readiness_level, start_date, planned_end_date,
+--          actual_end_date, budget, actual_cost, project_manager, lead_engineer,
+--          team_size, ip_generated, patents_filed, risk_level, created_at, updated_at
 -- ============================================================================
 CREATE OR REPLACE TABLE ENGINEERING_PROJECTS (
     project_id VARCHAR(30) PRIMARY KEY,
@@ -362,7 +422,12 @@ CREATE OR REPLACE TABLE ENGINEERING_PROJECTS (
 );
 
 -- ============================================================================
--- TEST_EVENTS TABLE - Test Flights and Evaluations
+-- TABLE: TEST_EVENTS
+-- Columns: test_id, project_id, asset_id, program_id, test_number, test_name,
+--          test_type, test_category, test_date, test_location, test_duration_hours,
+--          test_objective, test_procedure, test_status, test_result,
+--          success_criteria_met, anomalies_count, data_collected_gb,
+--          test_conductor, witness, customer_witnessed, notes, created_at
 -- ============================================================================
 CREATE OR REPLACE TABLE TEST_EVENTS (
     test_id VARCHAR(30) PRIMARY KEY,
@@ -394,7 +459,12 @@ CREATE OR REPLACE TABLE TEST_EVENTS (
 );
 
 -- ============================================================================
--- EMPLOYEES TABLE - Cleared Personnel
+-- TABLE: EMPLOYEES
+-- Columns: employee_id, division_id, employee_number, first_name, last_name,
+--          email, phone, job_title, department, employee_type, security_clearance,
+--          clearance_expiry_date, hire_date, termination_date, employee_status,
+--          manager_id, labor_category, hourly_rate, annual_salary, certifications,
+--          skills, location, remote_eligible, created_at, updated_at
 -- ============================================================================
 CREATE OR REPLACE TABLE EMPLOYEES (
     employee_id VARCHAR(30) PRIMARY KEY,
@@ -426,7 +496,13 @@ CREATE OR REPLACE TABLE EMPLOYEES (
 );
 
 -- ============================================================================
--- INCIDENTS TABLE - Safety and Anomaly Reports
+-- TABLE: INCIDENTS
+-- Columns: incident_id, asset_id, program_id, division_id, incident_number,
+--          incident_date, incident_type, incident_category, severity, location,
+--          description, root_cause, immediate_action, corrective_action,
+--          preventive_action, incident_status, investigation_status, reported_by,
+--          assigned_to, resolution_date, cost_impact, schedule_impact_days,
+--          customer_notified, lessons_learned, created_at, updated_at
 -- ============================================================================
 CREATE OR REPLACE TABLE INCIDENTS (
     incident_id VARCHAR(30) PRIMARY KEY,
@@ -461,7 +537,13 @@ CREATE OR REPLACE TABLE INCIDENTS (
 );
 
 -- ============================================================================
--- SUPPLIERS TABLE - Vendor and Supplier Information
+-- TABLE: SUPPLIERS
+-- Columns: supplier_id, supplier_code, supplier_name, supplier_type,
+--          supplier_category, address, city, state, country, primary_contact,
+--          contact_email, contact_phone, payment_terms, quality_rating,
+--          delivery_rating, is_approved, is_small_business, is_woman_owned,
+--          is_veteran_owned, cage_code, duns_number, supplier_status,
+--          first_order_date, total_spend, created_at, updated_at
 -- ============================================================================
 CREATE OR REPLACE TABLE SUPPLIERS (
     supplier_id VARCHAR(30) PRIMARY KEY,
@@ -493,7 +575,12 @@ CREATE OR REPLACE TABLE SUPPLIERS (
 );
 
 -- ============================================================================
--- PURCHASE_ORDERS TABLE - Procurement
+-- TABLE: PURCHASE_ORDERS
+-- Columns: po_id, supplier_id, program_id, division_id, po_number, po_date,
+--          required_date, po_type, po_status, subtotal, tax_amount, shipping_amount,
+--          total_amount, payment_terms, shipping_method, ship_to_location, buyer,
+--          approved_by, approval_date, receipt_date, invoice_number, invoice_date,
+--          notes, created_at, updated_at
 -- ============================================================================
 CREATE OR REPLACE TABLE PURCHASE_ORDERS (
     po_id VARCHAR(30) PRIMARY KEY,
@@ -527,11 +614,71 @@ CREATE OR REPLACE TABLE PURCHASE_ORDERS (
 );
 
 -- ============================================================================
--- Display confirmation
+-- TABLE: TECHNICAL_DOCUMENTS (for Cortex Search)
+-- Columns: doc_id, program_id, division_id, doc_number, doc_title, doc_type,
+--          doc_category, content, author, created_date, revision, doc_status,
+--          security_classification, keywords, created_at
 -- ============================================================================
+CREATE OR REPLACE TABLE TECHNICAL_DOCUMENTS (
+    doc_id VARCHAR(30) PRIMARY KEY,
+    program_id VARCHAR(30),
+    division_id VARCHAR(20),
+    doc_number VARCHAR(50) NOT NULL,
+    doc_title VARCHAR(500) NOT NULL,
+    doc_type VARCHAR(50) NOT NULL,
+    doc_category VARCHAR(50),
+    content VARCHAR(16000) NOT NULL,
+    author VARCHAR(200),
+    created_date DATE,
+    revision VARCHAR(20),
+    doc_status VARCHAR(30) DEFAULT 'CURRENT',
+    security_classification VARCHAR(30) DEFAULT 'UNCLASSIFIED',
+    keywords VARCHAR(500),
+    created_at TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
+);
+
+-- ============================================================================
+-- TABLE: TEST_REPORTS (for Cortex Search)
+-- Columns: report_id, test_id, program_id, report_number, report_title,
+--          report_type, content, test_date, author, result_summary,
+--          anomalies_summary, recommendations, created_at
+-- ============================================================================
+CREATE OR REPLACE TABLE TEST_REPORTS (
+    report_id VARCHAR(30) PRIMARY KEY,
+    test_id VARCHAR(30),
+    program_id VARCHAR(30),
+    report_number VARCHAR(50) NOT NULL,
+    report_title VARCHAR(500) NOT NULL,
+    report_type VARCHAR(50) NOT NULL,
+    content VARCHAR(16000) NOT NULL,
+    test_date DATE,
+    author VARCHAR(200),
+    result_summary VARCHAR(2000),
+    anomalies_summary VARCHAR(2000),
+    recommendations VARCHAR(2000),
+    created_at TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
+);
+
+-- ============================================================================
+-- TABLE: INCIDENT_LOGS (for Cortex Search)
+-- Columns: log_id, incident_id, program_id, division_id, log_date, log_type,
+--          summary, detailed_description, actions_taken, lessons_learned,
+--          created_at
+-- ============================================================================
+CREATE OR REPLACE TABLE INCIDENT_LOGS (
+    log_id VARCHAR(30) PRIMARY KEY,
+    incident_id VARCHAR(30),
+    program_id VARCHAR(30),
+    division_id VARCHAR(20),
+    log_date DATE NOT NULL,
+    log_type VARCHAR(50) NOT NULL,
+    summary VARCHAR(500) NOT NULL,
+    detailed_description VARCHAR(16000) NOT NULL,
+    actions_taken VARCHAR(3000),
+    lessons_learned VARCHAR(3000),
+    created_at TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
+);
+
 SELECT 'All tables created successfully' AS status;
-
--- Show all tables
 SHOW TABLES IN SCHEMA KRATOS_INTELLIGENCE.RAW;
-
 
