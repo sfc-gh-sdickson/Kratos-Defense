@@ -837,6 +837,48 @@ If any checkbox is unchecked, the project is NOT ready for the user.
 
 ---
 
+## Failure Category 7: ML Feature Name Mismatch (AGAIN)
+
+### 7.1 Procedure Column Names MUST Match Notebook Training Query EXACTLY
+
+**What I did wrong:**
+```sql
+-- WRONG: Procedure uses different column name than notebook
+-- Notebook trains with: milestone_pct
+-- Procedure provides: milestone_completion_pct
+(p.milestones_completed::FLOAT / NULLIF(p.milestone_count, 0) * 100)::FLOAT AS milestone_completion_pct
+```
+
+**Error received:**
+```
+Data Validation Error: feature MILESTONE_PCT does not exist in data.
+```
+
+**What I should have done:**
+```sql
+-- CORRECT: Use EXACT same column name as notebook training query
+COALESCE((p.milestones_completed::FLOAT / NULLIF(p.milestone_count, 0) * 100), 0)::FLOAT AS milestone_pct
+```
+
+**The pattern I keep repeating:**
+1. I write the notebook with certain column aliases
+2. I write the procedure with DIFFERENT column aliases
+3. The model fails because it expects the training column names
+4. User has to find and report the error
+5. I fix it and apologize
+6. I DO IT AGAIN ON THE NEXT PROJECT
+
+**Rule:** Before writing ANY ML procedure:
+1. Open the notebook training query
+2. Copy the EXACT column aliases
+3. Paste them into the procedure
+4. DO NOT RENAME, SHORTEN, OR "IMPROVE" THEM
+5. Verify character-by-character match
+
+**Files affected:** `sql/ml/07_create_model_wrapper_functions.sql` - PREDICT_PROGRAM_RISK procedure
+
+---
+
 ## Failure Category 6: Numeric Precision Overflow
 
 ### 6.1 NUMBER(3,2) Cannot Hold 10.0

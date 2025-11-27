@@ -64,7 +64,7 @@ def predict_program_risk(session, program_type):
         p.schedule_variance_days::FLOAT AS schedule_variance,
         p.percent_complete::FLOAT AS completion_pct,
         p.milestone_count::FLOAT AS total_milestones,
-        (p.milestones_completed::FLOAT / NULLIF(p.milestone_count, 0) * 100)::FLOAT AS milestone_completion_pct,
+        COALESCE((p.milestones_completed::FLOAT / NULLIF(p.milestone_count, 0) * 100), 0)::FLOAT AS milestone_pct,
         (p.spent_amount::FLOAT / NULLIF(p.budget_amount, 0) * 100)::FLOAT AS budget_utilization,
         p.program_type AS prog_type,
         -- Label for reference (will not be used in prediction)
