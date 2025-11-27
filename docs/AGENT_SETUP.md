@@ -1,3 +1,5 @@
+![Snowflake Logo](../Snowflake_Logo.svg)
+
 # Kratos Defense Intelligence Agent - Setup Guide
 
 This guide provides step-by-step instructions to set up and configure the Kratos Defense Intelligence Agent.

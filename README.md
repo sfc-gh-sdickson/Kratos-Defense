@@ -1,3 +1,5 @@
+![Snowflake Logo](Snowflake_Logo.svg)
+
 # Kratos Defense Intelligence Agent Solution
 
 ## About Kratos Defense

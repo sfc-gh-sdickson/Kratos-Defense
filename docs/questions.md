@@ -1,3 +1,5 @@
+![Snowflake Logo](../Snowflake_Logo.svg)
+
 # Kratos Defense Intelligence Agent - Test Questions
 
 This document provides 15 test questions (5 simple, 5 complex, 5 ML) that can be answered by the Kratos Intelligence Agent.
