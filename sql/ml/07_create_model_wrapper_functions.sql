@@ -194,38 +194,21 @@ DECLARE
     result RESULTSET;
 BEGIN
     result := (
-        WITH asset_data AS (
-            SELECT
-                a.asset_id,
-                a.asset_name,
-                COALESCE(a.total_flight_hours, 0) AS current_flight_hours,
-                COALESCE(a.maintenance_interval_hours, 250) AS maintenance_interval,
-                a.last_maintenance_date,
-                a.next_maintenance_due,
-                -- Calculate average daily flight hours
-                COALESCE(
-                    (SELECT AVG(flight_hours) FROM RAW.ASSET_OPERATIONS WHERE asset_id = a.asset_id AND operation_date >= DATEADD('day', -90, CURRENT_DATE())),
-                    2.0
-                ) AS avg_daily_hours
-            FROM RAW.ASSETS a
-            WHERE a.asset_id = :ASSET_ID_INPUT
-        )
         SELECT
-            ad.asset_id,
-            ad.asset_name,
-            ad.current_flight_hours::NUMBER(10,2),
-            ad.maintenance_interval::NUMBER(10,0),
-            GREATEST(0, (ad.maintenance_interval - MOD(ad.current_flight_hours, ad.maintenance_interval)))::NUMBER(10,2) AS hours_until_maintenance,
-            COALESCE(ad.next_maintenance_due, 
-                     DATEADD('day', (GREATEST(0, (ad.maintenance_interval - MOD(ad.current_flight_hours, ad.maintenance_interval))) / GREATEST(ad.avg_daily_hours, 0.1))::INT, CURRENT_DATE())
-            ) AS next_maintenance_date,
+            a.asset_id,
+            a.asset_name,
+            COALESCE(a.total_flight_hours, 0)::NUMBER(10,2) AS current_flight_hours,
+            COALESCE(a.maintenance_interval_hours, 250)::NUMBER(10,0) AS maintenance_interval,
+            GREATEST(0, COALESCE(a.maintenance_interval_hours, 250) - MOD(COALESCE(a.total_flight_hours, 0)::INT, COALESCE(a.maintenance_interval_hours, 250)))::NUMBER(10,2) AS hours_until_maintenance,
+            COALESCE(a.next_maintenance_due, DATEADD('day', 30, CURRENT_DATE())) AS next_maintenance_date,
             CASE 
-                WHEN GREATEST(0, (ad.maintenance_interval - MOD(ad.current_flight_hours, ad.maintenance_interval))) < 25 THEN 'CRITICAL - Immediate attention required'
-                WHEN GREATEST(0, (ad.maintenance_interval - MOD(ad.current_flight_hours, ad.maintenance_interval))) < 50 THEN 'HIGH - Schedule maintenance soon'
-                WHEN GREATEST(0, (ad.maintenance_interval - MOD(ad.current_flight_hours, ad.maintenance_interval))) < 100 THEN 'MEDIUM - Plan maintenance'
+                WHEN DATEDIFF('day', CURRENT_DATE(), COALESCE(a.next_maintenance_due, DATEADD('day', 90, CURRENT_DATE()))) < 7 THEN 'CRITICAL - Immediate attention required'
+                WHEN DATEDIFF('day', CURRENT_DATE(), COALESCE(a.next_maintenance_due, DATEADD('day', 90, CURRENT_DATE()))) < 14 THEN 'HIGH - Schedule maintenance soon'
+                WHEN DATEDIFF('day', CURRENT_DATE(), COALESCE(a.next_maintenance_due, DATEADD('day', 90, CURRENT_DATE()))) < 30 THEN 'MEDIUM - Plan maintenance'
                 ELSE 'LOW - Maintenance not imminent'
             END AS maintenance_urgency
-        FROM asset_data ad
+        FROM RAW.ASSETS a
+        WHERE a.asset_id = :ASSET_ID_INPUT
     );
     RETURN TABLE(result);
 END;
