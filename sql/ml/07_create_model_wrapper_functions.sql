@@ -232,9 +232,33 @@ END;
 $$;
 
 -- ============================================================================
+-- Test Calls - Program Risk Predictor
+-- ============================================================================
+CALL PREDICT_PROGRAM_RISK('PRG000001');
+CALL PREDICT_PROGRAM_RISK('PRG000050');
+
+-- ============================================================================
+-- Test Calls - Supplier Risk Predictor
+-- ============================================================================
+CALL PREDICT_SUPPLIER_RISK('SUP00001');
+CALL PREDICT_SUPPLIER_RISK('SUP00100');
+
+-- ============================================================================
+-- Test Calls - Production Forecaster
+-- ============================================================================
+CALL FORECAST_PRODUCTION(3, 2025);
+CALL FORECAST_PRODUCTION(9, 2025);
+
+-- ============================================================================
+-- Test Calls - Asset Maintenance Predictor
+-- ============================================================================
+CALL PREDICT_ASSET_MAINTENANCE('AST000001');
+CALL PREDICT_ASSET_MAINTENANCE('AST000250');
+
+-- ============================================================================
 -- Verification
 -- ============================================================================
-SELECT 'ML wrapper procedures created successfully' AS status;
+SELECT 'ML wrapper procedures created and tested successfully' AS status;
 SHOW PROCEDURES LIKE 'PREDICT%' IN SCHEMA KRATOS_INTELLIGENCE.ANALYTICS;
 SHOW PROCEDURES LIKE 'FORECAST%' IN SCHEMA KRATOS_INTELLIGENCE.ANALYTICS;
 
