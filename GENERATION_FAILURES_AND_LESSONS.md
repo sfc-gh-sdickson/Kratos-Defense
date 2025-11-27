@@ -1135,3 +1135,57 @@ Before ANY numeric cast, verify:
 □ Verify: max_generated <= max_storable
 ```
 
+---
+
+## Failure Category 10: Python ML Libraries in Stored Procedures
+
+### 10.1 snowflake-ml-python Registry Not Compatible with Stored Procedures
+
+**What I did wrong:**
+```python
+# WRONG: Used Registry class inside a stored procedure
+CREATE OR REPLACE PROCEDURE PREDICT_PROGRAM_RISK(...)
+LANGUAGE PYTHON
+AS $$
+def predict_program_risk(session, program_type):
+    from snowflake.ml.registry import Registry
+    reg = Registry(session)  # THIS FAILS!
+$$
+```
+
+**Errors received (progressive failures):**
+1. First: `Unsupported statement type 'USE'.`
+2. Second: `Unsupported statement type 'SHOW PARAMETER'.`
+
+**Why this happens:**
+- Python stored procedures run in a **sandboxed environment**
+- SQL statements like USE, SHOW are **blocked by Snowflake**
+- The `snowflake-ml-python` Registry class internally runs these blocked statements
+- This is a **fundamental platform limitation**, not a configuration issue
+
+**What I should have done:**
+```sql
+-- CORRECT: Use SQL stored procedures that query feature views directly
+CREATE OR REPLACE PROCEDURE PREDICT_PROGRAM_RISK(PROGRAM_TYPE VARCHAR)
+RETURNS STRING
+LANGUAGE SQL  -- SQL, NOT PYTHON!
+AS $$
+DECLARE result_json STRING;
+BEGIN
+    SELECT OBJECT_CONSTRUCT('programs_analyzed', COUNT(*), ...)::STRING
+    INTO result_json
+    FROM KRATOS_INTELLIGENCE.ANALYTICS.V_PROGRAM_RISK_FEATURES
+    WHERE ...;
+    RETURN result_json;
+END;
+$$;
+```
+
+**Rule:** For agent tool procedures:
+1. **Use SQL language**, NOT Python
+2. Query feature views directly for analytics
+3. The notebook trains the model; procedures just query views for current state
+4. **Never** use `snowflake-ml-python` inside stored procedures
+
+**Files affected:** `sql/ml/07_create_model_wrapper_functions.sql` - All 3 procedures converted from Python to SQL
+
