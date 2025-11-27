@@ -16,7 +16,7 @@ USE WAREHOUSE KRATOS_WH;
 -- Procedure 1: Predict Program Risk
 -- Predicts whether a program is at risk of cost/schedule overrun
 -- ============================================================================
-CREATE OR REPLACE PROCEDURE PREDICT_PROGRAM_RISK(PROGRAM_ID_INPUT VARCHAR)
+CREATE OR REPLACE PROCEDURE PREDICT_PROGRAM_RISK(PROGRAM_ID VARCHAR)
 RETURNS TABLE (
     program_id VARCHAR,
     program_name VARCHAR,
@@ -43,7 +43,7 @@ BEGIN
                 DATEDIFF('day', p.start_date, CURRENT_DATE()) AS days_active,
                 DATEDIFF('day', CURRENT_DATE(), COALESCE(p.planned_end_date, DATEADD('year', 1, CURRENT_DATE()))) AS days_remaining
             FROM RAW.PROGRAMS p
-            WHERE p.program_id = :PROGRAM_ID_INPUT
+            WHERE p.program_id = :PROGRAM_ID
         )
         SELECT
             pf.program_id,
@@ -71,7 +71,7 @@ $$;
 -- Procedure 2: Predict Supplier Risk
 -- Predicts whether a supplier is at risk of quality/delivery issues
 -- ============================================================================
-CREATE OR REPLACE PROCEDURE PREDICT_SUPPLIER_RISK(SUPPLIER_ID_INPUT VARCHAR)
+CREATE OR REPLACE PROCEDURE PREDICT_SUPPLIER_RISK(SUPPLIER_ID VARCHAR)
 RETURNS TABLE (
     supplier_id VARCHAR,
     supplier_name VARCHAR,
@@ -105,7 +105,7 @@ BEGIN
             COALESCE(s.delivery_rating, 0.5)::NUMBER(5,2) AS delivery_rating,
             ((COALESCE(s.quality_rating, 0.5) + COALESCE(s.delivery_rating, 0.5)) / 2)::NUMBER(5,2) AS overall_score
         FROM RAW.SUPPLIERS s
-        WHERE s.supplier_id = :SUPPLIER_ID_INPUT
+        WHERE s.supplier_id = :SUPPLIER_ID
     );
     RETURN TABLE(result);
 END;
@@ -177,7 +177,7 @@ $$;
 -- Procedure 4: Predict Asset Maintenance
 -- Predicts when an asset will need maintenance
 -- ============================================================================
-CREATE OR REPLACE PROCEDURE PREDICT_ASSET_MAINTENANCE(ASSET_ID_INPUT VARCHAR)
+CREATE OR REPLACE PROCEDURE PREDICT_ASSET_MAINTENANCE(ASSET_ID VARCHAR)
 RETURNS STRING
 LANGUAGE PYTHON
 RUNTIME_VERSION = '3.10'
@@ -186,7 +186,7 @@ HANDLER = 'predict_maintenance'
 COMMENT = 'Predicts when an asset will need maintenance based on flight hours and schedule'
 AS
 $$
-def predict_maintenance(session, asset_id_input):
+def predict_maintenance(session, asset_id):
     import json
     
     # Use SQL to calculate everything including days_until
@@ -209,7 +209,7 @@ def predict_maintenance(session, asset_id_input):
             ELSE 'LOW - Maintenance not imminent'
         END AS urgency
     FROM RAW.ASSETS
-    WHERE asset_id = '{asset_id_input}'
+    WHERE asset_id = '{asset_id}'
     """
     
     result = session.sql(query).collect()
