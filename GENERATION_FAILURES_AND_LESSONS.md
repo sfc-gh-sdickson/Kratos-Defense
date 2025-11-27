@@ -835,3 +835,55 @@ Before declaring ANY Snowflake Intelligence project complete:
 
 If any checkbox is unchecked, the project is NOT ready for the user.
 
+---
+
+## Failure Category 6: Numeric Precision Overflow
+
+### 6.1 NUMBER(3,2) Cannot Hold 10.0
+
+**What I did wrong:**
+```sql
+-- WRONG: UNIFORM can return 100, which becomes 10.0
+(UNIFORM(70, 100, RANDOM()) / 10.0)::NUMBER(3,2) AS performance_rating
+(UNIFORM(70, 100, RANDOM()) / 10.0)::NUMBER(3,2) AS quality_rating
+(UNIFORM(70, 100, RANDOM()) / 10.0)::NUMBER(3,2) AS delivery_rating
+(UNIFORM(70, 100, RANDOM()) / 10.0)::NUMBER(3,2) AS overall_rating
+```
+
+**Error received:**
+```
+Number out of representable range: type FIXED[SB2](3,2){not null}, value 10.000000
+```
+
+**What I should have done:**
+```sql
+-- CORRECT: Use UNIFORM(70, 99) so max is 9.9, which fits in NUMBER(3,2)
+(UNIFORM(70, 99, RANDOM()) / 10.0)::NUMBER(3,2) AS performance_rating
+```
+
+**Why NUMBER(3,2) can't hold 10.0:**
+- `NUMBER(precision, scale)` = precision total digits, scale decimal digits
+- `NUMBER(3,2)` = 3 total digits, 2 after decimal = **1 digit before decimal**
+- Maximum value: **9.99**
+- 10.0 has **2 digits before decimal** - doesn't fit!
+
+**Rule:** When casting to NUMBER(p,s), verify the maximum possible value fits:
+- Max digits before decimal = precision - scale
+- Max value = 10^(precision-scale) - 1 with scale decimal places
+- NUMBER(3,2) max = 9.99
+- NUMBER(5,2) max = 999.99
+- NUMBER(10,2) max = 99999999.99
+
+**Files affected:** `sql/data/03_generate_synthetic_data.sql` - 4 occurrences fixed
+
+---
+
+## MANDATORY: Numeric Precision Verification
+
+Before ANY numeric cast, verify:
+```
+□ Calculate max value from UNIFORM/calculation
+□ Calculate max storable value from NUMBER(p,s): 10^(p-s) - 1
+□ Verify: max_generated <= max_storable
+```
+

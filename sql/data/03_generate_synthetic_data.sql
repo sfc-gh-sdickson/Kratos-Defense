@@ -218,7 +218,7 @@ SELECT
     ARRAY_CONSTRUCT('FULL_AND_OPEN', 'SOLE_SOURCE', 'LIMITED', 'FOLLOW_ON')[UNIFORM(0, 3, RANDOM())] AS competition_type,
     UNIFORM(0, 100, RANDOM()) < 40 AS is_classified,
     ARRAY_CONSTRUCT('UNCLASSIFIED', 'CONFIDENTIAL', 'SECRET', 'TOP SECRET')[UNIFORM(0, 3, RANDOM())] AS security_level,
-    (UNIFORM(70, 100, RANDOM()) / 10.0)::NUMBER(3,2) AS performance_rating,
+    (UNIFORM(70, 99, RANDOM()) / 10.0)::NUMBER(3,2) AS performance_rating,
     CURRENT_TIMESTAMP() AS created_at,
     CURRENT_TIMESTAMP() AS updated_at
 FROM TABLE(GENERATOR(ROWCOUNT => 300));
@@ -346,8 +346,8 @@ SELECT
         WHEN UNIFORM(0, 100, RANDOM()) < 95 THEN 'HIGH'
         ELSE 'CRITICAL'
     END AS risk_rating,
-    (UNIFORM(70, 100, RANDOM()) / 10.0)::NUMBER(3,2) AS quality_rating,
-    (UNIFORM(70, 100, RANDOM()) / 10.0)::NUMBER(3,2) AS delivery_rating,
+    (UNIFORM(70, 99, RANDOM()) / 10.0)::NUMBER(3,2) AS quality_rating,
+    (UNIFORM(70, 99, RANDOM()) / 10.0)::NUMBER(3,2) AS delivery_rating,
     UNIFORM(0, 100, RANDOM()) < 30 AS is_small_business,
     UNIFORM(0, 100, RANDOM()) < 15 AS is_woman_owned,
     UNIFORM(0, 100, RANDOM()) < 10 AS is_veteran_owned,
@@ -501,7 +501,7 @@ SELECT
         WHEN 1 THEN 'IN_PROGRESS'
         ELSE 'COMPLETED'
     END AS inspection_status,
-    (UNIFORM(70, 100, RANDOM()) / 10.0)::NUMBER(3,2) AS overall_rating,
+    (UNIFORM(70, 99, RANDOM()) / 10.0)::NUMBER(3,2) AS overall_rating,
     (UNIFORM(75, 100, RANDOM()) * 1.0)::NUMBER(5,2) AS compliance_score,
     (UNIFORM(80, 100, RANDOM()) * 1.0)::NUMBER(5,2) AS quality_score,
     (UNIFORM(85, 100, RANDOM()) * 1.0)::NUMBER(5,2) AS safety_score,
