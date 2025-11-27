@@ -42,7 +42,7 @@ SELECT
         ELSE 'ON_BUDGET'
     END AS budget_status
 FROM RAW.PROGRAMS p
-JOIN RAW.BUSINESS_DIVISIONS d ON p.division_id = d.division_id
+JOIN RAW.DIVISIONS d ON p.division_id = d.division_id
 LEFT JOIN RAW.CUSTOMERS c ON p.customer_id = c.customer_id;
 
 -- ============================================================================
@@ -300,7 +300,7 @@ SELECT
     SUM(p.funded_value) AS total_funded_value,
     AVG(p.cost_variance_pct) AS avg_cost_variance_pct,
     AVG(p.schedule_variance_pct) AS avg_schedule_variance_pct
-FROM RAW.BUSINESS_DIVISIONS d
+FROM RAW.DIVISIONS d
 LEFT JOIN RAW.PROGRAMS p ON d.division_id = p.division_id
 GROUP BY 
     d.division_id, d.division_code, d.division_name, d.division_head,
