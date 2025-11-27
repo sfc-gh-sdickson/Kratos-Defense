@@ -1164,28 +1164,97 @@ $$
 - This is a **fundamental platform limitation**, not a configuration issue
 
 **What I should have done:**
+Use **SQL Stored Procedures** invoking the model object directly.
+
 ```sql
--- CORRECT: Use SQL stored procedures that query feature views directly
+-- CORRECT: Use SQL stored procedures calling the model object
 CREATE OR REPLACE PROCEDURE PREDICT_PROGRAM_RISK(PROGRAM_TYPE VARCHAR)
 RETURNS STRING
-LANGUAGE SQL  -- SQL, NOT PYTHON!
+LANGUAGE SQL
 AS $$
 DECLARE result_json STRING;
 BEGIN
-    SELECT OBJECT_CONSTRUCT('programs_analyzed', COUNT(*), ...)::STRING
-    INTO result_json
-    FROM KRATOS_INTELLIGENCE.ANALYTICS.V_PROGRAM_RISK_FEATURES
-    WHERE ...;
+    WITH predictions AS (
+        -- Invoke the registered model object using WITH ... AS MODEL syntax
+        WITH m AS MODEL KRATOS_INTELLIGENCE.ANALYTICS.PROGRAM_RISK_PREDICTOR
+        SELECT 
+            m!PREDICT(
+                budget, spent, variance, schedule_variance,
+                completion_pct, total_milestones, milestone_pct, 
+                budget_utilization, prog_type
+            ):PREDICTED_RISK::INT AS predicted_risk
+        FROM KRATOS_INTELLIGENCE.ANALYTICS.V_PROGRAM_RISK_FEATURES
+        WHERE (:PROGRAM_TYPE IS NULL OR UPPER(prog_type) = UPPER(:PROGRAM_TYPE))
+    )
+    SELECT OBJECT_CONSTRUCT(...)::STRING INTO result_json FROM predictions;
     RETURN result_json;
 END;
 $$;
 ```
 
-**Rule:** For agent tool procedures:
+**Rule:** For agent tool procedures wrapping ML models:
 1. **Use SQL language**, NOT Python
-2. Query feature views directly for analytics
-3. The notebook trains the model; procedures just query views for current state
-4. **Never** use `snowflake-ml-python` inside stored procedures
+2. Use `WITH m AS MODEL schema.model_name` syntax
+3. Use `m!PREDICT(feature_cols...)` to invoke
+4. **Aggregate results** into a single JSON string (Agent cannot digest TABLE output)
+5. **Handle NULL filters** robustly (`:PARAM IS NULL OR :PARAM = 'NULL' OR UPPER(col) = UPPER(:PARAM)`)
 
-**Files affected:** `sql/ml/07_create_model_wrapper_functions.sql` - All 3 procedures converted from Python to SQL
+**Files affected:** `sql/ml/07_create_model_wrapper_functions.sql`
+
+---
+
+## Failure Category 11: Agent Integration Failures
+
+### 11.1 Procedures Must Return STRING (JSON), Not TABLE
+
+**What I did wrong:**
+- Changed procedure to `RETURNS TABLE(...)` to get individual predictions
+- Agent failed with "Error: Tool execution failed" because it expects a single response string
+
+**Rule:** Agent tools must return a single **STRING** (JSON) summarizing the analysis, not a result set of rows.
+
+### 11.2 Case Sensitivity in Filters
+
+**What I did wrong:**
+- `WHERE prog_type = :PROGRAM_TYPE`
+- Agent passed `'Development'`, Database had `'DEVELOPMENT'` -> 0 rows returned
+
+**Rule:** Always use `UPPER(col) = UPPER(:param)` for string filters in Agent tools.
+
+### 11.3 Handling "All" (NULL) Filters
+
+**What I did wrong:**
+- Agent tried passing `'NULL'` (string) or empty string `''` or omitting parameter
+- Procedure only checked `IS NULL` SQL check
+
+**Rule:** Robust filter logic:
+```sql
+WHERE (:PARAM IS NULL OR :PARAM = 'NULL' OR :PARAM = '' OR UPPER(col) = UPPER(:PARAM))
+```
+
+---
+
+## 🏆 FINAL ARCHITECTURE: The Pattern That Works
+
+To avoid "Claude Opus messes" in the future, use this exact architecture:
+
+1.  **Feature View (`04_create_views.sql`)**:
+    - Defines ALL features for training and prediction
+    - Casts numeric types explicitly (`::FLOAT`)
+    - Handles NULLs with `COALESCE`
+    - **Single Source of Truth** for both Notebook and Procedure
+
+2.  **Notebook (`kratos_ml_models.ipynb`)**:
+    - Queries Feature View: `SELECT * FROM V_FEATURES`
+    - Trains Model
+    - Registers Model: `reg.log_model(..., version_name=NULL)` (Auto-versioning)
+
+3.  **SQL Procedures (`07_create_model_wrapper_functions.sql`)**:
+    - **Language:** SQL
+    - **Invocation:** `WITH m AS MODEL ... m!PREDICT(...)`
+    - **Input:** Uses Feature View columns matching training EXACTLY
+    - **Output:** Aggregates predictions into `OBJECT_CONSTRUCT(...)` JSON string
+    - **Filters:** Case-insensitive + Robust NULL handling
+
+**Do not deviate from this pattern.** It is the only one that works end-to-end with Snowflake Intelligence.
 
