@@ -41,20 +41,15 @@ def predict_program_risk(session, program_type):
     from snowflake.ml.registry import Registry
     import json
     
-    # Set session context to avoid QUOTED_IDENTIFIERS_IGNORE_CASE errors
-    session.sql("USE DATABASE KRATOS_INTELLIGENCE").collect()
-    session.sql("USE SCHEMA ANALYTICS").collect()
-    
-    # Get model from registry
-    reg = Registry(session)
+    # Get model from registry (uses fully qualified name)
+    reg = Registry(session, database_name="KRATOS_INTELLIGENCE", schema_name="ANALYTICS")
     model = reg.get_model("PROGRAM_RISK_PREDICTOR").default
     
-    # Build query using FEATURE VIEW - NEVER define features inline!
-    # The view already has filters built in, just add optional type filter
+    # Build query using FEATURE VIEW with fully qualified name
     type_filter = f"WHERE prog_type = '{program_type}'" if program_type else ""
     
     query = f"""
-    SELECT * FROM ANALYTICS.V_PROGRAM_RISK_FEATURES
+    SELECT * FROM KRATOS_INTELLIGENCE.ANALYTICS.V_PROGRAM_RISK_FEATURES
     {type_filter}
     LIMIT 50
     """
@@ -112,20 +107,15 @@ def predict_supplier_risk(session, supplier_type):
     from snowflake.ml.registry import Registry
     import json
     
-    # Set session context to avoid QUOTED_IDENTIFIERS_IGNORE_CASE errors
-    session.sql("USE DATABASE KRATOS_INTELLIGENCE").collect()
-    session.sql("USE SCHEMA ANALYTICS").collect()
-    
-    # Get model from registry
-    reg = Registry(session)
+    # Get model from registry (uses fully qualified name)
+    reg = Registry(session, database_name="KRATOS_INTELLIGENCE", schema_name="ANALYTICS")
     model = reg.get_model("SUPPLIER_RISK_PREDICTOR").default
     
-    # Build query using FEATURE VIEW - NEVER define features inline!
-    # The view already has filters built in, just add optional type filter
+    # Build query using FEATURE VIEW with fully qualified name
     type_filter = f"WHERE sup_type = '{supplier_type}'" if supplier_type else ""
     
     query = f"""
-    SELECT * FROM ANALYTICS.V_SUPPLIER_RISK_FEATURES
+    SELECT * FROM KRATOS_INTELLIGENCE.ANALYTICS.V_SUPPLIER_RISK_FEATURES
     {type_filter}
     LIMIT 50
     """
@@ -187,20 +177,15 @@ def predict_maintenance(session, asset_type):
     from snowflake.ml.registry import Registry
     import json
     
-    # Set session context to avoid QUOTED_IDENTIFIERS_IGNORE_CASE errors
-    session.sql("USE DATABASE KRATOS_INTELLIGENCE").collect()
-    session.sql("USE SCHEMA ANALYTICS").collect()
-    
-    # Get model from registry
-    reg = Registry(session)
+    # Get model from registry (uses fully qualified name)
+    reg = Registry(session, database_name="KRATOS_INTELLIGENCE", schema_name="ANALYTICS")
     model = reg.get_model("ASSET_MAINTENANCE_PREDICTOR").default
     
-    # Build query using FEATURE VIEW - NEVER define features inline!
-    # The view already has filters built in, just add optional type filter
+    # Build query using FEATURE VIEW with fully qualified name
     type_filter = f"WHERE ast_type = '{asset_type}'" if asset_type else ""
     
     query = f"""
-    SELECT * FROM ANALYTICS.V_ASSET_MAINTENANCE_FEATURES
+    SELECT * FROM KRATOS_INTELLIGENCE.ANALYTICS.V_ASSET_MAINTENANCE_FEATURES
     {type_filter}
     LIMIT 100
     """
