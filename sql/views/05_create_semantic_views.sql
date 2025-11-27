@@ -450,7 +450,9 @@ CREATE OR REPLACE SEMANTIC VIEW SV_ENGINEERING_SUPPORT_INTELLIGENCE
     suppliers.mean_delivery AS AVG(delivery_rating)
       WITH SYNONYMS ('supplier delivery', 'vendor delivery score'),
     suppliers.sb_count AS SUM(CASE WHEN is_small_business = TRUE THEN 1 ELSE 0 END)
-      WITH SYNONYMS ('small business count', 'small business suppliers')
+      WITH SYNONYMS ('small business count', 'small business suppliers'),
+    suppliers.total_supplier_spend AS SUM(total_spend)
+      WITH SYNONYMS ('supplier spend', 'vendor spend', 'procurement spend')
   )
   COMMENT = 'Engineering & Support Intelligence';
 
