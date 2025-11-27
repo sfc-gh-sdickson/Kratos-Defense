@@ -178,42 +178,78 @@ $$;
 -- Predicts when an asset will need maintenance
 -- ============================================================================
 CREATE OR REPLACE PROCEDURE PREDICT_ASSET_MAINTENANCE(ASSET_ID_INPUT VARCHAR)
-RETURNS TABLE (
-    asset_id VARCHAR,
-    asset_name VARCHAR,
-    current_flight_hours NUMBER,
-    maintenance_interval NUMBER,
-    days_until_maintenance NUMBER,
-    next_maintenance_date DATE,
-    maintenance_urgency VARCHAR
-)
-LANGUAGE SQL
+RETURNS STRING
+LANGUAGE PYTHON
+RUNTIME_VERSION = '3.10'
+PACKAGES = ('snowflake-snowpark-python')
+HANDLER = 'predict_maintenance'
+COMMENT = 'Predicts when an asset will need maintenance based on flight hours and schedule'
 AS
 $$
-DECLARE
-    result RESULTSET;
-BEGIN
-    result := (
-        SELECT
-            a.asset_id,
-            a.asset_name,
-            COALESCE(a.total_flight_hours, 0) AS current_flight_hours,
-            COALESCE(a.maintenance_interval_hours, 250) AS maintenance_interval,
-            DATEDIFF('day', CURRENT_DATE(), COALESCE(a.next_maintenance_due, DATEADD('day', 30, CURRENT_DATE()))) AS days_until_maintenance,
-            COALESCE(a.next_maintenance_due, DATEADD('day', 30, CURRENT_DATE())) AS next_maintenance_date,
-            CASE 
-                WHEN a.next_maintenance_due IS NULL THEN 'UNKNOWN - No maintenance scheduled'
-                WHEN a.next_maintenance_due < CURRENT_DATE() THEN 'OVERDUE - Maintenance past due'
-                WHEN a.next_maintenance_due < DATEADD('day', 7, CURRENT_DATE()) THEN 'CRITICAL - Due within 7 days'
-                WHEN a.next_maintenance_due < DATEADD('day', 14, CURRENT_DATE()) THEN 'HIGH - Due within 14 days'
-                WHEN a.next_maintenance_due < DATEADD('day', 30, CURRENT_DATE()) THEN 'MEDIUM - Due within 30 days'
-                ELSE 'LOW - Maintenance not imminent'
-            END AS maintenance_urgency
-        FROM RAW.ASSETS a
-        WHERE a.asset_id = :ASSET_ID_INPUT
-    );
-    RETURN TABLE(result);
-END;
+def predict_maintenance(session, asset_id_input):
+    import json
+    from datetime import datetime, date
+    
+    query = f"""
+    SELECT
+        asset_id,
+        asset_name,
+        COALESCE(total_flight_hours, 0) AS flight_hours,
+        COALESCE(maintenance_interval_hours, 250) AS maint_interval,
+        next_maintenance_due,
+        last_maintenance_date,
+        asset_status
+    FROM RAW.ASSETS
+    WHERE asset_id = '{asset_id_input}'
+    """
+    
+    result = session.sql(query).collect()
+    
+    if len(result) == 0:
+        return json.dumps({
+            "error": f"Asset {asset_id_input} not found",
+            "asset_id": asset_id_input
+        })
+    
+    row = result[0]
+    asset_id = row['ASSET_ID']
+    asset_name = row['ASSET_NAME']
+    flight_hours = float(row['FLIGHT_HOURS'])
+    maint_interval = int(row['MAINT_INTERVAL'])
+    next_due = row['NEXT_MAINTENANCE_DUE']
+    last_maint = row['LAST_MAINTENANCE_DATE']
+    status = row['ASSET_STATUS']
+    
+    today = date.today()
+    
+    if next_due is None:
+        days_until = 30
+        urgency = "UNKNOWN - No maintenance scheduled"
+        next_due_str = "Not scheduled"
+    else:
+        days_until = (next_due - today).days
+        next_due_str = str(next_due)
+        if days_until < 0:
+            urgency = "OVERDUE - Maintenance past due"
+        elif days_until < 7:
+            urgency = "CRITICAL - Due within 7 days"
+        elif days_until < 14:
+            urgency = "HIGH - Due within 14 days"
+        elif days_until < 30:
+            urgency = "MEDIUM - Due within 30 days"
+        else:
+            urgency = "LOW - Maintenance not imminent"
+    
+    return json.dumps({
+        "asset_id": asset_id,
+        "asset_name": asset_name,
+        "current_flight_hours": flight_hours,
+        "maintenance_interval_hours": maint_interval,
+        "next_maintenance_due": next_due_str,
+        "days_until_maintenance": days_until,
+        "maintenance_urgency": urgency,
+        "asset_status": status
+    })
 $$;
 
 -- ============================================================================
