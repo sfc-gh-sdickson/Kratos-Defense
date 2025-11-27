@@ -41,6 +41,10 @@ def predict_program_risk(session, program_type):
     from snowflake.ml.registry import Registry
     import json
     
+    # Set session context to avoid QUOTED_IDENTIFIERS_IGNORE_CASE errors
+    session.sql("USE DATABASE KRATOS_INTELLIGENCE").collect()
+    session.sql("USE SCHEMA ANALYTICS").collect()
+    
     # Get model from registry
     reg = Registry(session)
     model = reg.get_model("PROGRAM_RISK_PREDICTOR").default
@@ -107,6 +111,10 @@ $$
 def predict_supplier_risk(session, supplier_type):
     from snowflake.ml.registry import Registry
     import json
+    
+    # Set session context to avoid QUOTED_IDENTIFIERS_IGNORE_CASE errors
+    session.sql("USE DATABASE KRATOS_INTELLIGENCE").collect()
+    session.sql("USE SCHEMA ANALYTICS").collect()
     
     # Get model from registry
     reg = Registry(session)
@@ -178,6 +186,10 @@ $$
 def predict_maintenance(session, asset_type):
     from snowflake.ml.registry import Registry
     import json
+    
+    # Set session context to avoid QUOTED_IDENTIFIERS_IGNORE_CASE errors
+    session.sql("USE DATABASE KRATOS_INTELLIGENCE").collect()
+    session.sql("USE SCHEMA ANALYTICS").collect()
     
     # Get model from registry
     reg = Registry(session)
